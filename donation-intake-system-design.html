@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="System architecture and implementation plan for a camera-first food donation intake application.">
+  <title>Donation Intake System Design</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f7f4;
+      --surface: #fbfdfb;
+      --surface-2: #e8efe9;
+      --ink: #172019;
+      --muted: #5c685f;
+      --line: #cbd5cd;
+      --accent: #28764b;
+      --accent-soft: #dcecdf;
+      --accent-ink: #15462d;
+      --warning: #8c5a16;
+      --warning-soft: #f5ead8;
+      --shadow: 0 20px 60px rgba(30, 54, 38, .10);
+      --radius: 16px;
+      --max: 1180px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101512;
+        --surface: #171e19;
+        --surface-2: #202a23;
+        --ink: #e8eee9;
+        --muted: #a8b3aa;
+        --line: #344039;
+        --accent: #6fc894;
+        --accent-soft: #1e3d2b;
+        --accent-ink: #b9e8c9;
+        --warning: #efbd75;
+        --warning-soft: #432f17;
+        --shadow: 0 20px 60px rgba(0, 0, 0, .28);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      text-rendering: optimizeLegibility;
+    }
+    a { color: inherit; }
+    button { font: inherit; }
+    code, pre, .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .shell { width: min(calc(100% - 40px), var(--max)); margin: 0 auto; }
+
+    .site-nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+      background: color-mix(in srgb, var(--bg) 90%, transparent);
+      backdrop-filter: blur(14px);
+    }
+    .nav-inner {
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+    }
+    .brand { display: flex; align-items: center; gap: 11px; text-decoration: none; font-weight: 700; }
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: var(--accent);
+      color: var(--bg);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .nav-links { display: flex; align-items: center; gap: 22px; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; }
+    .nav-links a:hover, .nav-links a:focus-visible { color: var(--ink); }
+
+    .hero {
+      minlvb: 0;
+      min-height: min(760px, calc(100dvh - 68px));
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(360px, .95fr);
+      gap: clamp(42px, 7vw, 94px);
+      align-items: center;
+      padding: 76px 0 88px;
+    }
+    .eyebrow {
+      margin: 0 0 18px;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 { margin-top: 0; letter-spacing: -.035em; line-height: 1.04; }
+    h1 { max-width: 780px; margin-bottom: 24px; font-size: clamp(46px, 7vw, 88px); font-weight: 690; }
+    h2 { max-width: 760px; margin-bottom: 18px; font-size: clamp(34px, 5vw, 58px); font-weight: 660; }
+    h3 { margin-bottom: 9px; font-size: 21px; font-weight: 670; }
+    .hero-copy > p:not(.eyebrow) { max-width: 590px; margin: 0 0 30px; color: var(--muted); font-size: 19px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .button {
+      min-height: 46px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--ink);
+      background: var(--surface);
+      text-decoration: none;
+      font-weight: 680;
+      white-space: nowrap;
+      transition: transform .18s ease, background .18s ease;
+    }
+    .button.primary { border-color: var(--accent); background: var(--accent); color: var(--bg); }
+    .button:hover { transform: translateY(-2px); }
+    .button:active { transform: translateY(1px); }
+
+    .hero-visual {
+      position: relative;
+      min-height: 500px;
+      border-radius: var(--radius);
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 18% 20%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 34%),
+        linear-gradient(145deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .capture-frame {
+      position: absolute;
+      inset: 48px 56px 72px;
+      border: 1px solid color-mix(in srgb, var(--accent) 56%, var(--line));
+      border-radius: 28px;
+    }
+    .capture-frame::before, .capture-frame::after {
+      content: "";
+      position: absolute;
+      width: 52px;
+      height: 52px;
+      border-color: var(--accent);
+      border-style: solid;
+    }
+    .capture-frame::before { left: -2px; top: -2px; border-width: 3px 0 0 3px; border-radius: 18px 0 0; }
+    .capture-frame::after { right: -2px; bottom: -2px; border-width: 0 3px 3px 0; border-radius: 0 0 18px; }
+    .package {
+      position: absolute;
+      width: 148px;
+      height: 194px;
+      left: 50%;
+      top: 48%;
+      transform: translate(-50%, -50%) rotate(-3deg);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      box-shadow: 0 18px 36px color-mix(in srgb, var(--ink) 13%, transparent);
+    }
+    .package-label { height: 58px; margin: 22px 18px 10px; border-radius: 8px; background: var(--accent); }
+    .package-line { height: 7px; margin: 9px 18px; border-radius: 4px; background: var(--line); }
+    .package-line.short { width: 54%; }
+    .scan-line {
+      position: absolute;
+      left: 22px;
+      right: 22px;
+      top: 56%;
+      height: 2px;
+      background: var(--accent);
+      box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 72%, transparent);
+    }
+    .capture-readout {
+      position: absolute;
+      left: 26px;
+      right: 26px;
+      bottom: 22px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: end;
+    }
+    .capture-readout strong { display: block; margin-bottom: 3px; font-size: 15px; }
+    .capture-readout span { color: var(--muted); font-size: 12px; }
+    .confidence { color: var(--accent); font: 700 24px/1 ui-monospace, monospace; }
+
+    section { padding: 112px 0; }
+    .section-intro { margin-bottom: 46px; }
+    .section-intro p { max-width: 680px; margin: 0; color: var(--muted); font-size: 18px; }
+    .rule { border-top: 1px solid var(--line); }
+
+    .architecture-wrap { position: relative; }
+    .view-controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 26px; }
+    .view-controls button {
+      padding: 9px 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--muted);
+      background: var(--surface);
+      cursor: pointer;
+    }
+    .view-controls button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); }
+    .architecture {
+      display: grid;
+      grid-template-columns: 1fr 1.14fr 1.34fr 1.08fr;
+      gap: 12px;
+      align-items: stretch;
+    }
+    .lane { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 56%, transparent); }
+    .lane-label { margin: 0 0 20px; color: var(--muted); font: 690 11px/1.2 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
+    .node {
+      position: relative;
+      width: 100%;
+      margin: 0 0 12px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--ink);
+      background: var(--surface);
+      text-align: left;
+      cursor: pointer;
+      transition: transform .18s ease, opacity .18s ease, border-color .18s ease;
+    }
+    .node:last-child { margin-bottom: 0; }
+    .node:hover, .node:focus-visible { transform: translateY(-2px); border-color: var(--accent); }
+    .node.mvp { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 52%, var(--line)); }
+    .node.dim { opacity: .2; }
+    .node strong { display: block; margin-bottom: 5px; font-size: 15px; }
+    .node span { display: block; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .node small { position: absolute; right: 11px; top: 10px; color: var(--accent); font: 700 9px/1 ui-monospace, monospace; }
+    .architecture-detail {
+      min-height: 92px;
+      margin-top: 12px;
+      padding: 21px 24px;
+      border-radius: var(--radius);
+      color: var(--accent-ink);
+      background: var(--accent-soft);
+    }
+    .architecture-detail strong { display: block; margin-bottom: 4px; }
+    .architecture-detail p { margin: 0; color: var(--muted); }
+
+    .principle {
+      display: grid;
+      grid-template-columns: .68fr 1.32fr;
+      gap: clamp(42px, 9vw, 130px);
+      align-items: start;
+    }
+    .principle blockquote { margin: 0; font-size: clamp(32px, 5vw, 60px); line-height: 1.08; letter-spacing: -.04em; font-weight: 620; }
+    .risk-list { display: grid; gap: 14px; }
+    .risk-item { padding: 18px 0; border-bottom: 1px solid var(--line); }
+    .risk-item:last-child { border-bottom: 0; }
+    .risk-item strong { display: block; margin-bottom: 5px; }
+    .risk-item p { margin: 0; color: var(--muted); }
+
+    .model-grid {
+      display: grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .model-map { padding: 28px; border-radius: var(--radius); background: var(--surface-2); }
+    .entity-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+    .entity { padding: 15px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+    .entity strong { display: block; margin-bottom: 4px; }
+    .entity span { color: var(--muted); font-size: 13px; }
+    .formula { padding: 28px; border-radius: var(--radius); background: var(--ink); color: var(--bg); }
+    .formula p { margin: 0 0 18px; color: color-mix(in srgb, var(--bg) 72%, transparent); }
+    .formula code { display: block; white-space: normal; color: var(--bg); font-size: 17px; line-height: 1.7; }
+
+    .workflow {
+      display: grid;
+      grid-template-columns: minmax(260px, .72fr) minmax(0, 1.28fr);
+      gap: 50px;
+      align-items: start;
+    }
+    .phase-nav { position: sticky; top: 100px; display: grid; gap: 7px; }
+    .phase-nav button {
+      padding: 16px;
+      border: 0;
+      border-left: 3px solid var(--line);
+      color: var(--muted);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+    .phase-nav button[aria-selected="true"] { border-color: var(--accent); color: var(--ink); background: var(--surface-2); }
+    .phase-nav strong, .phase-nav span { display: block; }
+    .phase-nav span { margin-top: 4px; font-size: 13px; }
+    .phase-panel { display: none; min-height: 390px; padding: 34px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+    .phase-panel.active { display: block; }
+    .phase-panel > p { max-width: 650px; color: var(--muted); }
+    .deliverables { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 28px; }
+    .deliverable { padding: 16px 0; border-top: 1px solid var(--line); }
+    .deliverable strong { display: block; }
+    .deliverable span { color: var(--muted); font-size: 13px; }
+
+    .slice {
+      display: grid;
+      grid-template-columns: repeat(9, auto);
+      align-items: center;
+      gap: 9px;
+      padding: 25px;
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      overflow-x: auto;
+    }
+    .slice-step { min-width: 112px; padding: 15px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+    .slice-step strong { display: block; font-size: 14px; }
+    .slice-step span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .arrow { color: var(--accent); font-weight: 800; }
+
+    .stack-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 16px; }
+    .stack-main, .stack-side { padding: 30px; border-radius: var(--radius); }
+    .stack-main { background: var(--ink); color: var(--bg); }
+    .stack-side { border: 1px solid var(--line); background: var(--surface); }
+    .stack-main p, .stack-side p { color: var(--muted); }
+    .stack-main p { color: color-mix(in srgb, var(--bg) 68%, transparent); }
+    .stack-table { width: 100%; border-collapse: collapse; }
+    .stack-table th, .stack-table td { padding: 13px 0; border-bottom: 1px solid color-mix(in srgb, var(--bg) 20%, transparent); text-align: left; vertical-align: top; }
+    .stack-table th { width: 35%; color: color-mix(in srgb, var(--bg) 68%, transparent); font-size: 12px; font-weight: 600; }
+    .stack-table td { font-size: 14px; }
+
+    .metrics { display: grid; grid-template-columns: 1.2fr .8fr .8fr; gap: 14px; }
+    .metric { min-height: 190px; padding: 24px; border-top: 3px solid var(--accent); background: var(--surface); }
+    .metric:first-child { grid-row: span 2; display: flex; flex-direction: column; justify-content: space-between; min-height: 394px; }
+    .metric strong { display: block; font-size: clamp(30px, 4vw, 54px); letter-spacing: -.04em; }
+    .metric span { color: var(--muted); }
+    .metric:first-child p { max-width: 420px; margin: 0; color: var(--muted); font-size: 18px; }
+
+    footer { padding: 42px 0 56px; border-top: 1px solid var(--line); color: var(--muted); }
+    .footer-inner { display: flex; justify-content: space-between; gap: 24px; }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; min-height: auto; padding-top: 62px; }
+      .hero-visual { min-height: 440px; }
+      .architecture { grid-template-columns: 1fr 1fr; }
+      .principle, .model-grid, .workflow, .stack-grid { grid-template-columns: 1fr; }
+      .phase-nav { position: static; grid-template-columns: repeat(2, 1fr); }
+      .metrics { grid-template-columns: 1fr 1fr; }
+      .metric:first-child { grid-row: auto; grid-column: 1 / -1; min-height: 260px; }
+    }
+    @media (max-width: 640px) {
+      .shell { width: min(calc(100% - 28px), var(--max)); }
+      .nav-links { display: none; }
+      .hero { gap: 40px; padding: 48px 0 72px; }
+      h1 { font-size: clamp(43px, 13vw, 64px); }
+      section { padding: 78px 0; }
+      .hero-visual { min-height: 390px; }
+      .capture-frame { inset: 34px 26px 68px; }
+      .architecture, .entity-grid, .phase-nav, .deliverables, .metrics { grid-template-columns: 1fr; }
+      .principle blockquote { font-size: 38px; }
+      .phase-panel { min-height: 0; padding: 24px; }
+      .footer-inner { flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+    }
+    @media print {
+      .site-nav, .actions, .view-controls, .phase-nav { display: none; }
+      body { background: white; color: #172019; }
+      .hero { min-height: auto; grid-template-columns: 1fr 1fr; padding: 30px 0; }
+      section { padding: 42px 0; break-inside: avoid; }
+      .phase-panel { display: block; min-height: 0; margin-bottom: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-nav">
+    <div class="shell nav-inner">
+      <a class="brand" href="#top"><span class="brand-mark">DI</span><span>Donation Intake</span></a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="#architecture">Architecture</a>
+        <a href="#data">Data model</a>
+        <a href="#start">Build plan</a>
+        <a href="#metrics">Metrics</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <div class="shell hero">
+      <div class="hero-copy">
+        <p class="eyebrow">System design brief</p>
+        <h1>Turn every donation into trusted inventory.</h1>
+        <p>A camera-first intake system that identifies food, captures evidence, asks people to verify risk, and preserves every decision.</p>
+        <div class="actions">
+          <a class="button primary" href="#start">Start with the MVP</a>
+          <a class="button" href="#architecture">Explore architecture</a>
+        </div>
+      </div>
+      <div class="hero-visual" role="img" aria-label="Illustration of a food package being scanned with a high-confidence result">
+        <div class="capture-frame">
+          <div class="package" aria-hidden="true">
+            <div class="package-label"></div>
+            <div class="package-line"></div>
+            <div class="package-line short"></div>
+            <div class="package-line"></div>
+          </div>
+          <div class="scan-line" aria-hidden="true"></div>
+        </div>
+        <div class="capture-readout">
+          <div><strong>Product identified</strong><span>Expiry needs volunteer confirmation</span></div>
+          <div class="confidence">94%</div>
+        </div>
+      </div>
+    </div>
+
+    <section id="architecture" class="rule">
+      <div class="shell architecture-wrap">
+        <div class="section-intro">
+          <h2>A pipeline, not one giant AI model.</h2>
+          <p>Keep capture, recognition, verification, and inventory separate. Each field retains its source, confidence, and review history.</p>
+        </div>
+        <div class="view-controls" aria-label="Filter architecture components">
+          <button type="button" data-view="all" aria-pressed="true">Complete system</button>
+          <button type="button" data-view="mvp" aria-pressed="false">MVP boundary</button>
+          <button type="button" data-view="later" aria-pressed="false">Scale later</button>
+        </div>
+        <div class="architecture">
+          <div class="lane">
+            <p class="lane-label">Volunteer experience</p>
+            <button class="node mvp" data-mvp="true" data-title="Mobile capture" data-detail="Start an intake, scan one barcode, photograph the date, enter quantity, and review the proposed record."><small>MVP</small><strong>Mobile capture</strong><span>Camera, barcode, offline queue</span></button>
+          </div>
+          <div class="lane">
+            <p class="lane-label">Application layer</p>
+            <button class="node mvp" data-mvp="true" data-title="API and workflow" data-detail="The backend owns authorization, intake status, validation rules, and final inventory writes."><small>MVP</small><strong>API and workflow</strong><span>Auth, roles, intake state</span></button>
+            <button class="node mvp" data-mvp="true" data-title="Background jobs" data-detail="Product lookups, OCR, retries, and alerts run without blocking the volunteer."><small>MVP</small><strong>Background jobs</strong><span>Processing, retries, alerts</span></button>
+          </div>
+          <div class="lane">
+            <p class="lane-label">Recognition layer</p>
+            <button class="node mvp" data-mvp="true" data-title="Barcode lookup" data-detail="Resolve UPC or EAN values through a provider adapter, then cache canonical product data."><small>MVP</small><strong>Barcode lookup</strong><span>Known product data</span></button>
+            <button class="node mvp" data-mvp="true" data-title="Expiry OCR" data-detail="Extract candidate dates while retaining the source image, crop, raw text, and field confidence."><small>MVP</small><strong>Expiry OCR</strong><span>Date candidates and evidence</span></button>
+            <button class="node" data-mvp="false" data-title="Vision enrichment" data-detail="Add ingredients, allergens, nutrition panels, multi-item grouping, and video counting after the MVP works."><strong>Vision enrichment</strong><span>Labels, nutrition, counting</span></button>
+          </div>
+          <div class="lane">
+            <p class="lane-label">Decision and record</p>
+            <button class="node mvp" data-mvp="true" data-title="Human verification" data-detail="A person confirms uncertain dates, allergens, damaged packaging, and conflicting identity evidence."><small>MVP</small><strong>Human verification</strong><span>Confirm, correct, quarantine</span></button>
+            <button class="node mvp" data-mvp="true" data-title="Inventory record" data-detail="PostgreSQL stores products, intake observations, lots, verification events, and auditable movements."><small>MVP</small><strong>Inventory record</strong><span>PostgreSQL and image storage</span></button>
+            <button class="node" data-mvp="false" data-title="Distribution operations" data-detail="Prioritize earliest-expiring stock, scan outbound items, and report donor impact."><strong>Distribution operations</strong><span>FEFO, outbound scans, reports</span></button>
+          </div>
+        </div>
+        <div class="architecture-detail" aria-live="polite">
+          <strong id="architecture-title">Recommended first release</strong>
+          <p id="architecture-copy">Barcode lookup, expiry OCR, human review, image evidence, and auditable inventory form the complete MVP.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell principle">
+        <blockquote>Machines prepare the record. People approve safety-critical risk.</blockquote>
+        <div class="risk-list">
+          <div class="risk-item"><strong>Always verify uncertain dates</strong><p>Do not guess whether a printed value is an expiry date, manufacture date, or lot code.</p></div>
+          <div class="risk-item"><strong>Treat allergens as high risk</strong><p>OCR and AI can propose allergens, but a volunteer must confirm them against package evidence.</p></div>
+          <div class="risk-item"><strong>Preserve conflicting evidence</strong><p>Keep the barcode result, raw OCR text, photos, edits, and verifier identity together.</p></div>
+          <div class="risk-item"><strong>Support quarantine explicitly</strong><p>Damaged packaging or uncertain cold-chain handling needs a reversible operational state.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="data" class="rule">
+      <div class="shell">
+        <div class="section-intro">
+          <h2>Model the physical food, not just the product.</h2>
+          <p>A product describes reusable facts. An inventory lot describes what arrived, where it is stored, and when it should move.</p>
+        </div>
+        <div class="model-grid">
+          <div class="model-map">
+            <div class="entity-grid">
+              <div class="entity"><strong>Organization</strong><span>Food bank or partner</span></div>
+              <div class="entity"><strong>User</strong><span>Volunteer, supervisor, admin</span></div>
+              <div class="entity"><strong>Donor</strong><span>Person, store, restaurant</span></div>
+              <div class="entity"><strong>Location</strong><span>Receiving and storage areas</span></div>
+              <div class="entity"><strong>Intake session</strong><span>One donation event</span></div>
+              <div class="entity"><strong>Product</strong><span>Canonical reusable facts</span></div>
+              <div class="entity"><strong>Intake item</strong><span>Observed package and evidence</span></div>
+              <div class="entity"><strong>Inventory lot</strong><span>Quantity with shared handling</span></div>
+              <div class="entity"><strong>Field evidence</strong><span>Image, OCR, lookup, entry</span></div>
+              <div class="entity"><strong>Verification</strong><span>Approval and correction history</span></div>
+              <div class="entity"><strong>Movement</strong><span>Receive, relocate, distribute</span></div>
+              <div class="entity"><strong>Quarantine</strong><span>Safety issue and resolution</span></div>
+            </div>
+          </div>
+          <aside class="formula">
+            <h3>Lot identity</h3>
+            <p>These fields define the smallest useful inventory unit.</p>
+            <code>product<br>+ location<br>+ expiry or best-by date<br>+ lot code<br>+ storage type</code>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="start">
+      <div class="shell">
+        <div class="section-intro">
+          <h2>Build one complete path first.</h2>
+          <p>The first milestone should produce a real, verified inventory lot. Live video and multi-item counting come later.</p>
+        </div>
+        <div class="slice" aria-label="Recommended MVP workflow">
+          <div class="slice-step"><strong>Sign in</strong><span>Organization and role</span></div><span class="arrow">→</span>
+          <div class="slice-step"><strong>Start intake</strong><span>Donor and location</span></div><span class="arrow">→</span>
+          <div class="slice-step"><strong>Scan item</strong><span>Barcode and photo</span></div><span class="arrow">→</span>
+          <div class="slice-step"><strong>Verify</strong><span>Quantity, date, storage</span></div><span class="arrow">→</span>
+          <div class="slice-step"><strong>Store lot</strong><span>Evidence and movement</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="rule">
+      <div class="shell workflow">
+        <div class="phase-nav" role="tablist" aria-label="Build phases">
+          <button type="button" role="tab" aria-selected="true" aria-controls="phase-foundation" id="tab-foundation"><strong>Foundation</strong><span>Rules, schema, access</span></button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="phase-scanning" id="tab-scanning"><strong>Scanning MVP</strong><span>First complete intake</span></button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="phase-reliability" id="tab-reliability"><strong>Operational reliability</strong><span>Pilot-ready safeguards</span></button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="phase-recognition" id="tab-recognition"><strong>Rich recognition</strong><span>Scale camera intelligence</span></button>
+        </div>
+        <div>
+          <article class="phase-panel active" id="phase-foundation" role="tabpanel" aria-labelledby="tab-foundation">
+            <h3>Establish the record and the rules</h3>
+            <p>Confirm required fields with food-bank staff before optimizing recognition. Define what can auto-approve, what needs review, and what triggers quarantine.</p>
+            <div class="deliverables">
+              <div class="deliverable"><strong>Database schema</strong><span>Products, lots, evidence, movements</span></div>
+              <div class="deliverable"><strong>API contract</strong><span>Typed request and response shapes</span></div>
+              <div class="deliverable"><strong>Access model</strong><span>Organizations, locations, roles</span></div>
+              <div class="deliverable"><strong>Retention policy</strong><span>Image access and deletion rules</span></div>
+            </div>
+          </article>
+          <article class="phase-panel" id="phase-scanning" role="tabpanel" aria-labelledby="tab-scanning">
+            <h3>Ship the first verified inventory lot</h3>
+            <p>Connect barcode scanning, product lookup, expiry photography, OCR, field review, and inventory creation in one end-to-end path.</p>
+            <div class="deliverables">
+              <div class="deliverable"><strong>Barcode adapter</strong><span>Provider-independent product lookup</span></div>
+              <div class="deliverable"><strong>Expiry extraction</strong><span>Candidate dates with evidence</span></div>
+              <div class="deliverable"><strong>Review screen</strong><span>Uncertain fields highlighted</span></div>
+              <div class="deliverable"><strong>Inventory write</strong><span>Lot plus receiving movement</span></div>
+            </div>
+          </article>
+          <article class="phase-panel" id="phase-reliability" role="tabpanel" aria-labelledby="tab-reliability">
+            <h3>Prepare for real volunteers</h3>
+            <p>Add the failure states that a controlled demo does not expose: weak connectivity, duplicate scans, OCR retries, damaged packages, and supervisor corrections.</p>
+            <div class="deliverables">
+              <div class="deliverable"><strong>Offline queue</strong><span>Durable capture and later sync</span></div>
+              <div class="deliverable"><strong>Duplicate detection</strong><span>Protect counts during rescans</span></div>
+              <div class="deliverable"><strong>Supervisor review</strong><span>Corrections remain auditable</span></div>
+              <div class="deliverable"><strong>Expiry operations</strong><span>Alerts, exports, donor receipts</span></div>
+            </div>
+          </article>
+          <article class="phase-panel" id="phase-recognition" role="tabpanel" aria-labelledby="tab-recognition">
+            <h3>Expand the camera workflow</h3>
+            <p>Use pilot evidence and corrections to improve recognition. Add safety-sensitive label extraction before multi-item video and visual calorie estimates.</p>
+            <div class="deliverables">
+              <div class="deliverable"><strong>Label extraction</strong><span>Ingredients and allergens</span></div>
+              <div class="deliverable"><strong>Nutrition parsing</strong><span>Serving and nutrient fields</span></div>
+              <div class="deliverable"><strong>Multi-item intake</strong><span>Grouping and package counting</span></div>
+              <div class="deliverable"><strong>Guided video</strong><span>Coverage and duplicate control</span></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-intro">
+          <h2>Use a modular monolith.</h2>
+          <p>Move quickly with one backend deployment and clear internal modules. Split out vision services only when workload or ownership demands it.</p>
+        </div>
+        <div class="stack-grid">
+          <div class="stack-main">
+            <h3>Recommended starting stack</h3>
+            <table class="stack-table">
+              <tbody>
+                <tr><th>Mobile</th><td>React Native with Expo</td></tr>
+                <tr><th>Backend</th><td>TypeScript with NestJS or Fastify</td></tr>
+                <tr><th>Database</th><td>PostgreSQL</td></tr>
+                <tr><th>Images</th><td>S3-compatible object storage</td></tr>
+                <tr><th>Jobs</th><td>Redis-backed worker queue</td></tr>
+                <tr><th>Contracts</th><td>OpenAPI-generated client types</td></tr>
+                <tr><th>Deployment</th><td>Managed platform first, cloud primitives later</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <aside class="stack-side">
+            <h3>Field-level provenance</h3>
+            <p>Never keep only the final value. A product name can be reliable while its date or allergen data remains uncertain.</p>
+            <pre><code>{
+  "value": "2026-10-14",
+  "source": "ocr",
+  "confidence": 0.91,
+  "verifiedBy": "user_123"
+}</code></pre>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="metrics" class="rule">
+      <div class="shell">
+        <div class="section-intro">
+          <h2>Let the pilot define what comes next.</h2>
+          <p>Measure workflow performance before investing in sophisticated vision. The correction data is also your future training set.</p>
+        </div>
+        <div class="metrics">
+          <div class="metric"><span>Primary pilot outcome</span><strong>Trusted inventory</strong><p>Ten volunteers should process several hundred packaged items with visible evidence, corrections, and movement history.</p></div>
+          <div class="metric"><span>Speed</span><strong>Time per item</strong></div>
+          <div class="metric"><span>Recognition</span><strong>Match rate</strong></div>
+          <div class="metric"><span>Human effort</span><strong>Correction rate</strong></div>
+          <div class="metric"><span>Operations</span><strong>Stock accuracy</strong></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell footer-inner">
+      <span>Donation Intake System Design</span>
+      <span>Camera capture, human verification, auditable inventory</span>
+    </div>
+  </footer>
+
+  <script>
+    const nodes = [...document.querySelectorAll('.node')];
+    const viewButtons = [...document.querySelectorAll('[data-view]')];
+    const architectureTitle = document.getElementById('architecture-title');
+    const architectureCopy = document.getElementById('architecture-copy');
+
+    function setArchitectureView(view) {
+      nodes.forEach((node) => {
+        const isMvp = node.dataset.mvp === 'true';
+        node.classList.toggle('dim', (view === 'mvp' && !isMvp) || (view === 'later' && isMvp));
+      });
+      if (view === 'mvp') {
+        architectureTitle.textContent = 'Recommended first release';
+        architectureCopy.textContent = 'Ship barcode lookup, expiry OCR, review, evidence, and auditable inventory before multi-item video.';
+      } else if (view === 'later') {
+        architectureTitle.textContent = 'Capabilities to scale later';
+        architectureCopy.textContent = 'Add ingredients, allergens, nutrition, multi-product grouping, guided video, distribution, and reporting.';
+      } else {
+        architectureTitle.textContent = 'One connected operating system';
+        architectureCopy.textContent = 'Capture creates evidence, services prepare candidate fields, people resolve risk, and verified lots drive distribution.';
+      }
+    }
+
+    viewButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        viewButtons.forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+        setArchitectureView(button.dataset.view);
+      });
+    });
+
+    nodes.forEach((node) => {
+      node.addEventListener('click', () => {
+        architectureTitle.textContent = node.dataset.title;
+        architectureCopy.textContent = node.dataset.detail;
+      });
+    });
+
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    const panels = [...document.querySelectorAll('[role="tabpanel"]')];
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((item) => item.setAttribute('aria-selected', String(item === tab)));
+        panels.forEach((panel) => panel.classList.toggle('active', panel.id === tab.getAttribute('aria-controls')));
+      });
+    });
+  </script>
+</body>
+</html>
