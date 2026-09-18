@@ -1,0 +1,22 @@
+.DS_Store
+
+# JavaScript / TypeScript
+node_modules/
+dist/
+coverage/
+test-results/
+*.tsbuildinfo
+
+# Swift / Xcode
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Local artifacts
+output/

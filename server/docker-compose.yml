@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: foodapp
+      POSTGRES_USER: foodapp
+      POSTGRES_PASSWORD: foodapp
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foodapp"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - foodapp_pg18:/var/lib/postgresql
+
+volumes:
+  foodapp_pg18:
