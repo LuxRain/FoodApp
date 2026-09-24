@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "FoodDonationCore",
-    platforms: [.iOS("20.0"), .macOS(.v14)],
+    platforms: [.iOS(.v18), .macOS(.v14)],
     products: [
         .library(name: "FoodDonationCore", targets: ["FoodDonationCore"]),
         .executable(name: "FoodDonationCoreChecks", targets: ["FoodDonationCoreChecks"]),

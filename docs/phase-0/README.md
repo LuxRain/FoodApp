@@ -18,7 +18,7 @@ Phase 0 converts the product decisions into testable operating rules before impl
 - Donation intake is anonymous. No donor identity, contact, address, or receipt information is collected.
 - PostgreSQL is the initial system of record. There is no existing inventory-system integration.
 - Open Food Facts is the initial external product-data provider, behind an adapter and cache.
-- The minimum deployment target is iOS 20.0.
+- The minimum deployment target is iOS 18.0. Xcode's platform target versions jump from iOS 18 to iOS 26; `20.0` is not a valid linker target.
 - Calories are recorded when available, together with their serving basis.
 - Default remaining shelf life is 14 days for shelf-stable/frozen food and 7 days for refrigerated/perishable food.
 

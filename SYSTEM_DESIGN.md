@@ -470,7 +470,7 @@ Exit: policy dashboards reconcile to inventory movements, and field-level accura
 | Product data | Use Open Food Facts first, under its Open Database License terms, behind a provider adapter and internal cache. Fall back to package capture and manual confirmation when data is missing. |
 | Roles and approval | Regular users scan and review automatically filled intake forms, using manual entry only when needed. Eligible records are accepted automatically; admins decide low-confidence, conflicting, or safety-sensitive exceptions. |
 | Rule ownership | Admin owns, approves, versions, activates, and retires nutrition, food-safety, and confidence-routing rulesets. |
-| Device support | Minimum deployment target: iOS 20.0. |
+| Device support | Minimum deployment target: iOS 18.0. Xcode does not define an iOS 20 linker target. |
 
 Before production, the admin must validate the proposed 7/14-day threshold table against the organization's operating and food-safety procedures. The system supports versioning these thresholds without an app release.
 
