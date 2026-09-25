@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
-    "start:dev": "node --watch -r ts-node/register src/main.ts",
+    "start:dev": "node --env-file=.env --watch -r ts-node/register src/main.ts",
     "test": "tsx --test src/**/*.test.ts",
     "test:e2e": "node scripts/e2e.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
