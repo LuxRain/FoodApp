@@ -32,6 +32,37 @@ public struct AllergenDeclaration: Codable, Equatable, Sendable {
     public init(code: String, declaration: String, labelText: String? = nil) { self.code = code; self.declaration = declaration; self.labelText = labelText }
 }
 
+public struct ProductLookupRequest: Codable, Sendable {
+    public let rawCode: String
+    public let scheme: ScanCodeScheme
+
+    public init(rawCode: String, scheme: ScanCodeScheme) {
+        self.rawCode = rawCode
+        self.scheme = scheme
+    }
+}
+
+public struct ProductLookupResponse: Codable, Sendable {
+    public let candidates: [ProductCandidate]
+}
+
+public struct ProductCandidate: Codable, Identifiable, Sendable {
+    public let productId: UUID?
+    public let normalizedCode: String
+    public let name: String
+    public let brand: String?
+    public let category: String?
+    public let calories: Decimal?
+    public let calorieBasis: String?
+    public let servingSize: String?
+    public let allergens: [AllergenDeclaration]
+    public let source: String
+    public let confidence: Double
+    public let requiresUserConfirmation: Bool
+
+    public var id: String { productId?.uuidString ?? "\(source):\(normalizedCode)" }
+}
+
 public struct CreateItemRequest: Codable, Sendable {
     public let productId: UUID?
     public let productName: String
@@ -51,6 +82,46 @@ public struct CreateItemRequest: Codable, Sendable {
     public let calorieBasis: String?
     public let allergens: [AllergenDeclaration]
     public let requiredFieldConfidence: [Double]
+
+    public init(
+        productId: UUID?,
+        productName: String,
+        brand: String?,
+        identitySource: String,
+        quantity: Decimal,
+        quantityUnit: String,
+        dateType: String,
+        dateValue: String?,
+        dateLabelRaw: String?,
+        storageType: String,
+        storageLocationId: UUID,
+        packageCondition: String,
+        temperatureStatus: String,
+        calorieStatus: String,
+        calories: Decimal?,
+        calorieBasis: String?,
+        allergens: [AllergenDeclaration],
+        requiredFieldConfidence: [Double]
+    ) {
+        self.productId = productId
+        self.productName = productName
+        self.brand = brand
+        self.identitySource = identitySource
+        self.quantity = quantity
+        self.quantityUnit = quantityUnit
+        self.dateType = dateType
+        self.dateValue = dateValue
+        self.dateLabelRaw = dateLabelRaw
+        self.storageType = storageType
+        self.storageLocationId = storageLocationId
+        self.packageCondition = packageCondition
+        self.temperatureStatus = temperatureStatus
+        self.calorieStatus = calorieStatus
+        self.calories = calories
+        self.calorieBasis = calorieBasis
+        self.allergens = allergens
+        self.requiredFieldConfidence = requiredFieldConfidence
+    }
 }
 
 public struct IntakeItemResponse: Codable, Sendable { public let id: UUID; public let status: IntakeStatus; public let version: Int }

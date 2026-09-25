@@ -19,10 +19,13 @@ The native build-system flag works around a SwiftPM/XCBuild property-list failur
 
 `FoodDonationApp.swiftpm` is the runnable iPhone application package. It currently provides:
 
-- an expiration-first dashboard shell;
+- an API-backed expiration-first dashboard with loading, empty, error, and refresh states;
 - a VisionKit barcode scanner for UPC/EAN, Code 128, QR, and GS1 DataBar symbols;
 - normalization through `FoodDonationCore.ScanParser`;
-- a native fallback state when scanning is unavailable, including in the simulator.
+- product lookup followed by a prefilled verification form;
+- session, intake-item, and idempotent submission calls;
+- editable development connection settings for Simulator and physical-iPhone testing;
+- manual barcode entry when scanning is unavailable, including in the simulator.
 
 Open `FoodDonationApp.swiftpm` in Xcode, choose an iPhone or simulator, and run the `FoodDonationApp` scheme. The first physical-device run requires camera permission and ordinary Apple code signing.
 
@@ -34,4 +37,15 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   -scheme FoodDonationApp \
   -destination "generic/platform=iOS Simulator" \
   build
+```
+
+For the local seeded development flow, start PostgreSQL and the API as documented in `../server/README.md`. In the Simulator, enter barcode `012345678905`; it resolves to the seeded Low-Sodium Black Beans product. A physical iPhone must use the Mac's Wi-Fi IP address instead of `127.0.0.1`; change it in the app's Settings tab.
+
+Run the Swift client against the real local API contract with:
+
+```bash
+cd ios
+FOOD_DONATION_API_URL=http://127.0.0.1:3000 \
+  swift run --scratch-path /tmp/food-donation-swift-build \
+  --build-system native FoodDonationCoreChecks
 ```

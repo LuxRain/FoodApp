@@ -3,7 +3,21 @@ import Foundation
 import FoundationNetworking
 #endif
 
-public enum APIError: Error, Equatable { case invalidResponse; case server(status: Int, message: String); case encoding }
+public enum APIError: Error, Equatable {
+    case invalidResponse
+    case server(status: Int, message: String)
+    case encoding
+}
+
+extension APIError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .invalidResponse: "The server returned an invalid response."
+        case let .server(_, message): message
+        case .encoding: "The request could not be encoded."
+        }
+    }
+}
 
 public actor FoodDonationAPI {
     private let baseURL: URL
@@ -20,6 +34,10 @@ public actor FoodDonationAPI {
 
     public func createSession(_ body: CreateSessionRequest) async throws -> IntakeSessionResponse {
         try await send("v1/intake-sessions", method: "POST", body: body)
+    }
+
+    public func lookupProduct(_ body: ProductLookupRequest) async throws -> ProductLookupResponse {
+        try await send("v1/product-lookups", method: "POST", body: body)
     }
 
     public func createItem(sessionID: UUID, body: CreateItemRequest) async throws -> IntakeItemResponse {
@@ -52,7 +70,9 @@ public actor FoodDonationAPI {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
-            let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["message"] as? String ?? "Request failed"
+            let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let messageValue = payload?["message"]
+            let message = (messageValue as? String) ?? (messageValue as? [String])?.joined(separator: "\n") ?? "Request failed"
             throw APIError.server(status: http.statusCode, message: message)
         }
         return try decoder.decode(Response.self, from: data)

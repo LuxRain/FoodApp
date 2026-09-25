@@ -5,6 +5,8 @@ import VisionKit
 struct ScannerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var scannerAvailable = DataScannerViewController.isSupported && DataScannerViewController.isAvailable
+    @State private var showingManualEntry = false
+    @State private var manualCode = "012345678905"
     let onScan: (String) -> Void
 
     var body: some View {
@@ -14,11 +16,14 @@ struct ScannerSheet: View {
                     BarcodeScannerView(onScan: onScan)
                         .ignoresSafeArea(edges: .bottom)
                 } else {
-                    ContentUnavailableView(
-                        "Scanner unavailable",
-                        systemImage: "camera.fill",
-                        description: Text("Use a physical supported iPhone and allow camera access.")
-                    )
+                    ContentUnavailableView {
+                        Label("Scanner unavailable", systemImage: "camera.fill")
+                    } description: {
+                        Text("Use a physical supported iPhone, or enter the development barcode manually.")
+                    } actions: {
+                        Button("Enter barcode") { showingManualEntry = true }
+                            .buttonStyle(.borderedProminent)
+                    }
                 }
             }
             .navigationTitle("Scan package")
@@ -27,7 +32,20 @@ struct ScannerSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                if scannerAvailable {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Type code") { showingManualEntry = true }
+                    }
+                }
             }
+        }
+        .alert("Enter barcode", isPresented: $showingManualEntry) {
+            TextField("UPC, EAN, or GTIN", text: $manualCode)
+                .keyboardType(.numberPad)
+            Button("Cancel", role: .cancel) {}
+            Button("Look up") { onScan(manualCode) }
+        } message: {
+            Text("The seeded development barcode is already filled in.")
         }
     }
 }

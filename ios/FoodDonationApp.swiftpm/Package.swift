@@ -19,6 +19,8 @@ let package = Package(
             supportedInterfaceOrientations: [.portrait],
             capabilities: [
                 .camera(purposeString: "Scan donated food barcodes and capture package evidence."),
+                .localNetwork(purposeString: "Connect to the food donation development server on this network."),
+                .appTransportSecurity(configuration: .init(allowsLocalNetworking: true)),
                 .outgoingNetworkConnections()
             ]
         )
