@@ -101,6 +101,13 @@ struct FoodDonationCoreChecks {
             allergens: [],
             requiredFieldConfidence: [1, 1, 1]
         ))
+        let testJPEG = Data(base64Encoded: "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYyLjExLjEwMAD/2wBDAAgKCgsKCw0NDQ0NDRAPEBAQEBAQEBAQEBASEhIVFRUSEhIQEBISFBQVFRcXFxUVFRUXFxkZGR4eHBwjIyQrKzP/xABMAAEBAAAAAAAAAAAAAAAAAAAABgEBAQAAAAAAAAAAAAAAAAAABgcQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAQABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCtAR06f//Z")!
+        let uploaded = try await api.uploadEvidence(itemID: item.id, jpegData: testJPEG, capturedAt: .now)
+        precondition(uploaded.intakeItemId == item.id)
+        let evidence = try await api.evidence(itemID: item.id)
+        precondition(evidence.items.contains { $0.id == uploaded.id })
+        let downloaded = try await api.evidenceImage(itemID: item.id, evidenceID: uploaded.id)
+        precondition(downloaded == testJPEG)
         let result = try await api.submitItem(
             itemID: item.id,
             body: .init(userReviewedAt: .now),

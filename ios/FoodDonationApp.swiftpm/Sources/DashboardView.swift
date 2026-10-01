@@ -8,7 +8,8 @@ struct DashboardView: View {
     var body: some View {
         Group {
             switch model.dashboardState {
-            case .idle, .loading where model.dashboardItems.isEmpty:
+            case .idle where model.dashboardItems.isEmpty,
+                 .loading where model.dashboardItems.isEmpty:
                 ProgressView("Loading donations")
             case let .failed(message) where model.dashboardItems.isEmpty:
                 ContentUnavailableView {
@@ -53,7 +54,12 @@ struct DashboardView: View {
                         Text("Next to distribute")
                             .font(.title2.bold())
                         ForEach(model.dashboardItems) { item in
-                            DonationRow(item: item)
+                            NavigationLink {
+                                EvidenceDetailView(item: item, model: model)
+                            } label: {
+                                DonationRow(item: item)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }

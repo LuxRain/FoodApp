@@ -31,12 +31,44 @@ const item = await request(`/intake-sessions/${session.id}/items`, {
   method: "POST",
   body: JSON.stringify({
     productId: productID, productName: "Low-Sodium Black Beans", brand: "Community Pantry", identitySource: "barcode",
-    quantity: 12, quantityUnit: "can", dateType: "best_if_used_by", dateValue: "2026-10-14",
-    dateLabelRaw: "BEST IF USED BY OCT 14 2026", storageType: "shelf_stable", storageLocationId: locationID,
+    quantity: 12, quantityUnit: "can", dateType: "best_if_used_by", dateValue: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+    dateLabelRaw: "BEST IF USED BY — verified in end-to-end test", storageType: "shelf_stable", storageLocationId: locationID,
     packageCondition: "acceptable", temperatureStatus: "not_applicable", calorieStatus: "recorded", calories: 110,
     calorieBasis: "per_serving", allergens: [], requiredFieldConfidence: [0.99, 0.96, 0.94],
   }),
 }, 201);
+
+const onePixelPNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
+const evidenceForm = new FormData();
+evidenceForm.append("capturedAt", new Date().toISOString());
+evidenceForm.append("photo", new Blob([onePixelPNG], { type: "image/png" }), "date-label.png");
+const { "content-type": _jsonContentType, ...multipartHeaders } = regularHeaders;
+const uploadResponse = await fetch(`${baseURL}/intake-items/${item.id}/evidence`, {
+  method: "POST", headers: multipartHeaders, body: evidenceForm,
+});
+const uploaded = await uploadResponse.json();
+if (uploadResponse.status !== 201 || uploaded.evidenceType !== "date_label") throw new Error(`Evidence upload failed: ${JSON.stringify(uploaded)}`);
+const duplicateResponse = await fetch(`${baseURL}/intake-items/${item.id}/evidence`, {
+  method: "POST", headers: multipartHeaders, body: evidenceForm,
+});
+const duplicate = await duplicateResponse.json();
+if (duplicateResponse.status !== 201 || duplicate.id !== uploaded.id) throw new Error("Duplicate upload created another asset");
+const evidence = await request(`/intake-items/${item.id}/evidence`);
+if (!evidence.items.some((asset) => asset.id === uploaded.id)) throw new Error("Uploaded evidence missing from item");
+const imageResponse = await fetch(`${baseURL}/intake-items/${item.id}/evidence/${uploaded.id}`, { headers: multipartHeaders });
+if (imageResponse.status !== 200 || imageResponse.headers.get("content-type") !== "image/png") throw new Error("Evidence download failed");
+if (!Buffer.from(await imageResponse.arrayBuffer()).equals(onePixelPNG)) throw new Error("Evidence image bytes changed");
+await request(`/intake-items/${item.id}/evidence`, { headers: { "x-organization-id": "00000000-0000-4000-8000-000000000999" } }, 404);
+const crossOrgImage = await fetch(`${baseURL}/intake-items/${item.id}/evidence/${uploaded.id}`, {
+  headers: { ...multipartHeaders, "x-organization-id": "00000000-0000-4000-8000-000000000999" },
+});
+if (crossOrgImage.status !== 404) throw new Error("Cross-organization evidence download was allowed");
+const invalidForm = new FormData();
+invalidForm.append("photo", new Blob([Buffer.from("not an image")], { type: "image/jpeg" }), "fake.jpg");
+const invalidResponse = await fetch(`${baseURL}/intake-items/${item.id}/evidence`, {
+  method: "POST", headers: multipartHeaders, body: invalidForm,
+});
+if (invalidResponse.status !== 400) throw new Error("Invalid image bytes were accepted");
 
 const submitOptions = {
   method: "POST",
@@ -53,4 +85,4 @@ if (!dashboard.items.some((entry) => entry.intakeItemId === item.id)) throw new 
 await request("/admin/review-queue", {}, 403);
 await request("/admin/review-queue", { headers: { "x-user-id": "admin-demo", "x-role": "admin" } });
 
-console.log(JSON.stringify({ productLookup: "passed", intakeItemId: item.id, inventoryLotId: submitted.inventoryLotId, idempotency: "passed", roleEnforcement: "passed", dashboard: "passed" }, null, 2));
+console.log(JSON.stringify({ productLookup: "passed", intakeItemId: item.id, inventoryLotId: submitted.inventoryLotId, evidence: "passed", idempotency: "passed", roleEnforcement: "passed", dashboard: "passed" }, null, 2));

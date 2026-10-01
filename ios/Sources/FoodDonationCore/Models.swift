@@ -126,6 +126,19 @@ public struct CreateItemRequest: Codable, Sendable {
 
 public struct IntakeItemResponse: Codable, Sendable { public let id: UUID; public let status: IntakeStatus; public let version: Int }
 
+public struct EvidenceAsset: Codable, Identifiable, Sendable {
+    public let id: UUID
+    public let intakeItemId: UUID
+    public let evidenceType: String
+    public let capturedAt: Date
+    public let createdAt: Date
+    public let contentHash: String
+}
+
+public struct EvidenceListResponse: Codable, Sendable {
+    public let items: [EvidenceAsset]
+}
+
 public struct SubmitItemRequest: Codable, Sendable {
     public let userReviewedAt: Date
     public let allergenConflict: Bool

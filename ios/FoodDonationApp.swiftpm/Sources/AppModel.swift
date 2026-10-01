@@ -1,3 +1,4 @@
+import CryptoKit
 import FoodDonationCore
 import Foundation
 import Observation
@@ -25,6 +26,7 @@ struct IntakeDraft: Identifiable {
     var dateConfidence: Double?
     var dateConfirmed = false
     var packagePhotoData: Data?
+    var packagePhotoCapturedAt: Date?
     var storageType = "shelf_stable"
     var packageCondition = "acceptable"
     var temperatureStatus = "not_applicable"
@@ -44,6 +46,13 @@ struct IntakeDraft: Identifiable {
 @MainActor
 @Observable
 final class AppModel {
+    private struct SubmissionAttempt {
+        let itemID: UUID
+        let idempotencyKey: String
+        let itemBody: Data
+        let photoHash: String?
+    }
+
     private enum Defaults {
         static let organizationID = "00000000-0000-4000-8000-000000000001"
         static let locationID = "00000000-0000-4000-8000-000000000101"
@@ -63,6 +72,7 @@ final class AppModel {
     private(set) var dashboardState: DashboardLoadState = .idle
     private(set) var dashboardItems: [DonationDashboardItem] = []
     private(set) var isLookingUp = false
+    private var submissionAttempts: [UUID: SubmissionAttempt] = [:]
 
     init(defaults: UserDefaults = .standard) {
         apiURL = defaults.string(forKey: "apiURL") ?? Defaults.apiURL
@@ -110,14 +120,7 @@ final class AppModel {
             throw AppValidationError("Confirm the actual printed date before submitting.")
         }
 
-        let client = try api()
-        let session = try await client.createSession(.init(
-            receivingLocationId: storageLocationID,
-            receivedAt: .now,
-            sourceChannel: "walk_in",
-            clientMutationId: "ios-session-\(UUID().uuidString)"
-        ))
-        let item = try await client.createItem(sessionID: session.id, body: .init(
+        let itemBody = CreateItemRequest(
             productId: draft.candidate.productId,
             productName: draft.productName,
             brand: draft.brand.nilIfBlank,
@@ -136,14 +139,54 @@ final class AppModel {
             calorieBasis: draft.calorieBasis,
             allergens: acceptedAllergens(from: draft.candidate.allergens),
             requiredFieldConfidence: [draft.candidate.confidence, 1, draft.hasPrintedDate ? 1 : 0.5]
-        ))
-        let response = try await client.submitItem(
-            itemID: item.id,
-            body: .init(userReviewedAt: .now),
-            idempotencyKey: "ios-submit-\(UUID().uuidString)"
         )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let encodedBody = try encoder.encode(itemBody)
+        let photoHash = draft.packagePhotoData.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
+        let client = try api()
+        let attempt: SubmissionAttempt
+        if let pending = submissionAttempts[draft.id], pending.itemBody == encodedBody, pending.photoHash == photoHash {
+            attempt = pending
+        } else {
+            let session = try await client.createSession(.init(
+                receivingLocationId: storageLocationID,
+                receivedAt: .now,
+                sourceChannel: "walk_in",
+                clientMutationId: "ios-session-\(UUID().uuidString)"
+            ))
+            let item = try await client.createItem(sessionID: session.id, body: itemBody)
+            attempt = SubmissionAttempt(
+                itemID: item.id,
+                idempotencyKey: "ios-submit-\(UUID().uuidString)",
+                itemBody: encodedBody,
+                photoHash: photoHash
+            )
+            submissionAttempts[draft.id] = attempt
+        }
+        if let photo = draft.packagePhotoData {
+            _ = try await client.uploadEvidence(
+                itemID: attempt.itemID,
+                jpegData: photo,
+                capturedAt: draft.packagePhotoCapturedAt ?? .now
+            )
+        }
+        let response = try await client.submitItem(
+            itemID: attempt.itemID,
+            body: .init(userReviewedAt: .now),
+            idempotencyKey: attempt.idempotencyKey
+        )
+        submissionAttempts[draft.id] = nil
         await loadDashboard()
         return response
+    }
+
+    func evidence(for itemID: UUID) async throws -> [EvidenceAsset] {
+        try await api().evidence(itemID: itemID).items
+    }
+
+    func evidenceImage(for itemID: UUID, evidenceID: UUID) async throws -> Data {
+        try await api().evidenceImage(itemID: itemID, evidenceID: evidenceID)
     }
 
     func resetDevelopmentSettings() {

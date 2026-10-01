@@ -62,7 +62,7 @@ struct IntakeReviewView: View {
                     if isReadingPhoto {
                         ProgressView("Reading printed date…")
                     }
-                    Text("Aim at the printed date. OCR runs on this device; check the result against the package.")
+                    Text("Aim at the printed date. Check the on-device OCR result against the package. The photo is saved with this intake when you submit.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -229,10 +229,12 @@ struct IntakeReviewView: View {
     private func readPhoto(_ data: Data) async {
         isReadingPhoto = true
         errorMessage = nil
-        draft.packagePhotoData = data
         defer { isReadingPhoto = false }
         do {
-            guard let match = try await PackageDateOCR.recognize(jpegData: data) else {
+            let jpeg = try PackageDateOCR.normalizedJPEG(from: data)
+            draft.packagePhotoData = jpeg
+            draft.packagePhotoCapturedAt = .now
+            guard let match = try await PackageDateOCR.recognize(jpegData: jpeg) else {
                 draft.hasPrintedDate = false
                 draft.dateValue = nil
                 draft.dateConfirmed = false

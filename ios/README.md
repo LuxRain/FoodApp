@@ -25,11 +25,12 @@ The native build-system flag works around a SwiftPM/XCBuild property-list failur
 - product lookup followed by a prefilled verification form;
 - camera or photo-library capture of a package date and on-device Apple Vision text recognition;
 - extracted date text, source, and confidence in the verification form, with explicit confirmation before submission;
+- private upload of the selected package photo before item submission, with the photo visible from donation details;
 - session, intake-item, and idempotent submission calls;
 - editable development connection settings for Simulator and physical-iPhone testing;
 - manual barcode entry when scanning is unavailable, including in the simulator.
 
-The review form starts with **no printed date** rather than a guessed expiry. For a package with a date, take or choose a clear photo, compare the OCR result with the package, and tap **Confirm date matches package**. If OCR misses the date, use **Set printed date** and enter it manually. A submission without a printed date is routed for admin review. Photos are processed on-device in this slice; the server receives the confirmed date and printed text, but photo upload/storage is not yet implemented.
+The review form starts with **no printed date** rather than a guessed expiry. For a package with a date, take or choose a clear photo, compare the OCR result with the package, and tap **Confirm date matches package**. If OCR misses the date, use **Set printed date** and enter it manually. A submission without a printed date is routed for admin review. OCR runs on-device; the selected photo is converted to JPEG and uploaded privately before submission. Tap a donation on the dashboard to inspect its saved photo beside the confirmed date.
 
 Open `FoodDonationApp.swiftpm` in Xcode, choose an iPhone or simulator, and run the `Food Donation` scheme. The first physical-device run requires camera permission and ordinary Apple code signing.
 

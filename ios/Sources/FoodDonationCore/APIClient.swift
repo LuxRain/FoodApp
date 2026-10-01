@@ -44,6 +44,33 @@ public actor FoodDonationAPI {
         try await send("v1/intake-sessions/\(sessionID.uuidString)/items", method: "POST", body: body)
     }
 
+    public func uploadEvidence(itemID: UUID, jpegData: Data, capturedAt: Date) async throws -> EvidenceAsset {
+        let boundary = "FoodDonation-\(UUID().uuidString)"
+        var body = Data()
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"capturedAt\"\r\n\r\n\(ISO8601DateFormatter().string(from: capturedAt))\r\n".utf8))
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"date-label.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
+        body.append(jpegData)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+
+        var request = URLRequest(url: baseURL.appending(path: "v1/intake-items/\(itemID.uuidString)/evidence"))
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        authenticate(&request)
+        return try decoder.decode(EvidenceAsset.self, from: try await validatedData(for: request))
+    }
+
+    public func evidence(itemID: UUID) async throws -> EvidenceListResponse {
+        try await sendURL(baseURL.appending(path: "v1/intake-items/\(itemID.uuidString)/evidence"), method: "GET", bodyData: nil, idempotencyKey: nil)
+    }
+
+    public func evidenceImage(itemID: UUID, evidenceID: UUID) async throws -> Data {
+        var request = URLRequest(url: baseURL.appending(path: "v1/intake-items/\(itemID.uuidString)/evidence/\(evidenceID.uuidString)"))
+        request.httpMethod = "GET"
+        authenticate(&request)
+        return try await validatedData(for: request)
+    }
+
     public func submitItem(itemID: UUID, body: SubmitItemRequest, idempotencyKey: String) async throws -> SubmitItemResponse {
         try await send("v1/intake-items/\(itemID.uuidString)/submit", method: "POST", body: body, idempotencyKey: idempotencyKey)
     }
@@ -63,10 +90,18 @@ public actor FoodDonationAPI {
     private func sendURL<Response: Decodable>(_ url: URL, method: String, bodyData: Data?, idempotencyKey: String?) async throws -> Response {
         var request = URLRequest(url: url); request.httpMethod = method; request.httpBody = bodyData
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authenticate(&request)
+        if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
+        return try decoder.decode(Response.self, from: try await validatedData(for: request))
+    }
+
+    private func authenticate(_ request: inout URLRequest) {
         request.setValue(auth.userID, forHTTPHeaderField: "x-user-id")
         request.setValue(auth.organizationID, forHTTPHeaderField: "x-organization-id")
         request.setValue(auth.role.rawValue, forHTTPHeaderField: "x-role")
-        if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
+    }
+
+    private func validatedData(for request: URLRequest) async throws -> Data {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
@@ -75,6 +110,6 @@ public actor FoodDonationAPI {
             let message = (messageValue as? String) ?? (messageValue as? [String])?.joined(separator: "\n") ?? "Request failed"
             throw APIError.server(status: http.statusCode, message: message)
         }
-        return try decoder.decode(Response.self, from: data)
+        return data
     }
 }
