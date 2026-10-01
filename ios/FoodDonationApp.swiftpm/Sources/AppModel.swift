@@ -18,9 +18,13 @@ struct IntakeDraft: Identifiable {
     var quantity = 1.0
     var quantityUnit = "each"
     var dateType = "best_if_used_by"
-    var hasPrintedDate = true
-    var dateValue = Calendar.current.date(byAdding: .day, value: 30, to: .now) ?? .now
+    var hasPrintedDate = false
+    var dateValue: Date?
     var dateLabelRaw = ""
+    var dateSource = "Not captured"
+    var dateConfidence: Double?
+    var dateConfirmed = false
+    var packagePhotoData: Data?
     var storageType = "shelf_stable"
     var packageCondition = "acceptable"
     var temperatureStatus = "not_applicable"
@@ -102,6 +106,9 @@ final class AppModel {
         guard draft.quantity > 0 else {
             throw AppValidationError("Quantity must be greater than zero.")
         }
+        if draft.hasPrintedDate && (draft.dateValue == nil || !draft.dateConfirmed) {
+            throw AppValidationError("Confirm the actual printed date before submitting.")
+        }
 
         let client = try api()
         let session = try await client.createSession(.init(
@@ -118,8 +125,8 @@ final class AppModel {
             quantity: Decimal(draft.quantity),
             quantityUnit: draft.quantityUnit,
             dateType: draft.hasPrintedDate ? draft.dateType : "none",
-            dateValue: draft.hasPrintedDate ? Self.dateFormatter.string(from: draft.dateValue) : nil,
-            dateLabelRaw: draft.dateLabelRaw.nilIfBlank,
+            dateValue: draft.hasPrintedDate ? draft.dateValue.map(Self.dateFormatter.string(from:)) : nil,
+            dateLabelRaw: draft.hasPrintedDate ? draft.dateLabelRaw.nilIfBlank : nil,
             storageType: draft.storageType,
             storageLocationId: storageLocationID,
             packageCondition: draft.packageCondition,
@@ -128,7 +135,7 @@ final class AppModel {
             calories: draft.calories.map { Decimal($0) },
             calorieBasis: draft.calorieBasis,
             allergens: acceptedAllergens(from: draft.candidate.allergens),
-            requiredFieldConfidence: [draft.candidate.confidence, 1, 1]
+            requiredFieldConfidence: [draft.candidate.confidence, 1, draft.hasPrintedDate ? 1 : 0.5]
         ))
         let response = try await client.submitItem(
             itemID: item.id,

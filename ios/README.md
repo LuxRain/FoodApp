@@ -23,18 +23,22 @@ The native build-system flag works around a SwiftPM/XCBuild property-list failur
 - a VisionKit barcode scanner for UPC/EAN, Code 128, QR, and GS1 DataBar symbols;
 - normalization through `FoodDonationCore.ScanParser`;
 - product lookup followed by a prefilled verification form;
+- camera or photo-library capture of a package date and on-device Apple Vision text recognition;
+- extracted date text, source, and confidence in the verification form, with explicit confirmation before submission;
 - session, intake-item, and idempotent submission calls;
 - editable development connection settings for Simulator and physical-iPhone testing;
 - manual barcode entry when scanning is unavailable, including in the simulator.
 
-Open `FoodDonationApp.swiftpm` in Xcode, choose an iPhone or simulator, and run the `FoodDonationApp` scheme. The first physical-device run requires camera permission and ordinary Apple code signing.
+The review form starts with **no printed date** rather than a guessed expiry. For a package with a date, take or choose a clear photo, compare the OCR result with the package, and tap **Confirm date matches package**. If OCR misses the date, use **Set printed date** and enter it manually. A submission without a printed date is routed for admin review. Photos are processed on-device in this slice; the server receives the confirmed date and printed text, but photo upload/storage is not yet implemented.
+
+Open `FoodDonationApp.swiftpm` in Xcode, choose an iPhone or simulator, and run the `Food Donation` scheme. The first physical-device run requires camera permission and ordinary Apple code signing.
 
 Build from the command line without changing the global developer directory:
 
 ```bash
 cd ios/FoodDonationApp.swiftpm
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
-  -scheme FoodDonationApp \
+  -scheme 'Food Donation' \
   -destination "generic/platform=iOS Simulator" \
   build
 ```

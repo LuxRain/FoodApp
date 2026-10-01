@@ -17,6 +17,28 @@ struct FoodDonationCoreChecks {
         precondition(lookup.candidates.first?.name == "Low-Sodium Black Beans")
         precondition(lookup.candidates.first?.productId?.uuidString == "00000000-0000-4000-8000-000000000201")
 
+        let labeledDate = DateLabelParser.bestMatch(in: [
+            (text: "LOT 4827", confidence: 0.99),
+            (text: "BEST BY", confidence: 0.97),
+            (text: "Oct 14, 2026", confidence: 0.96),
+        ])
+        precondition(labeledDate?.dateType == "best_before")
+        precondition(labeledDate?.rawText == "BEST BY Oct 14, 2026")
+        precondition((labeledDate?.confidence ?? 0) > 0.9)
+
+        let ambiguousDate = DateLabelParser.bestMatch(in: [(text: "10/14/26", confidence: 0.95)])
+        precondition(ambiguousDate?.dateType == "unknown")
+        precondition((ambiguousDate?.confidence ?? 1) < 0.9)
+        if let date = ambiguousDate?.date {
+            precondition(Calendar(identifier: .gregorian).component(.year, from: date) == 2026)
+        }
+        let preferredLabel = DateLabelParser.bestMatch(in: [
+            (text: "2026-10-15", confidence: 1),
+            (text: "USE BY 10/14/26", confidence: 0.95),
+        ])
+        precondition(preferredLabel?.dateType == "use_by")
+        precondition(DateLabelParser.bestMatch(in: [(text: "BEST BY 10/14", confidence: 0.99)]) == nil)
+
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let outbox = try OfflineOutbox(fileURL: directory.appending(path: "outbox.json"))
         let mutation = PendingMutation(id: "check-1", path: "v1/intake-sessions", method: "POST", body: Data("{}".utf8))
