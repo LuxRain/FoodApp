@@ -1,47 +1,29 @@
-# App Icon Design QA
+# Sign-in design QA
 
-- Source visual truth: `/Users/linminpei/.codex/generated_images/01a07f07-b762-7873-a9d5-922a1a79a41b/exec-e331418d-11fc-4448-b30c-31ee2d946706.png`
-- Production asset: `/Users/linminpei/Documents/foodApp/ios/FoodDonationApp.swiftpm/Sources/Assets.xcassets/AppIcon.appiconset/AppIcon.png`
-- Implementation screenshot: `/Users/linminpei/Documents/foodApp/design-qa-assets/food-donation-icon-home.png`
-- Combined focused comparison: `/Users/linminpei/Documents/foodApp/design-qa-assets/food-donation-icon-comparison.png`
-- Viewport: iPhone 18 Pro Simulator home screen, light appearance, 1206 × 2622 px screenshot
-- Source dimensions: 1254 × 1254 px with alpha; normalized production asset: 1024 × 1024 px, RGB, no alpha
-- Focused implementation crop: 300 × 300 px; the source was normalized to the same 300 × 300 px comparison size
-- CSS size and density: not applicable to this native iOS asset; the Simulator rendered the compiled icon through the system app-icon mask
-- State: installed app at rest on the iOS home screen
+Previous app-icon QA report: `docs/design/app-icon-design-qa.md`.
+
+- Source visual truth: `docs/design/sign-in/option-2-source.png` (853 × 1844 px; concept art for a 390 × 844 pt iPhone content viewport).
+- Rendered implementation: `docs/design/sign-in/implementation-iphone-18-pro.png` (1206 × 2622 px; iPhone 18 Pro simulator at 3× density).
+- Combined comparison: `docs/design/sign-in/comparison.png` (1706 × 1844 px). The simulator's 132 px status-bar region was cropped, then the remainder was scaled to 853 × 1844 for content comparison. The source is a generated concept, not a pixel-accurate iOS screenshot; compare hierarchy and proportions rather than exact glyph edges.
+- State: dark mode, initial empty email field, keyboard closed.
+- Focused comparison: form controls and “How it works” row were inspected in the full-resolution combined image; text and assets were legible without a separate crop.
 
 ## Findings
 
-No actionable P0, P1, or P2 differences remain.
+No remaining P0–P2 visual mismatch. The native screen keeps the selected concept's logo, headline, email field, primary action, explainer row, and access help in the same hierarchy.
 
-- Fonts and typography: the icon contains no embedded type. The system-rendered “Food Donation” label remains readable and is not part of the icon asset.
-- Spacing and layout rhythm: the carrot retains generous safe-area padding after the iOS rounded-square mask is applied. Its optical center and leaf-to-root balance match the selected concept.
-- Colors and visual tokens: the natural orange and green remain saturated and distinct at home-screen size; the warm near-white background separates cleanly from the wallpaper.
-- Image quality and asset fidelity: the selected raster artwork is used directly, resized to Apple’s 1024 × 1024 requirement, and flattened without alpha. No substitute drawing, glyph, or placeholder is present.
-- Copy and content: there is no copy inside the icon; the app name is provided by iOS.
-
-## Full-view comparison evidence
-
-The home-screen capture shows the compiled asset at its real system-rendered size and mask. It remains immediately recognizable and visually quieter than the previous green placeholder.
-
-## Focused-region comparison evidence
-
-The combined 300 × 300 comparison confirms that the carrot shape, two root marks, leaf proportions, orange/green palette, soft highlight, and pale circular wash are preserved. The expected difference is the opaque warm-white square behind the source's transparent exterior, required for a valid iOS app icon.
+The native screen intentionally uses the app's solid green action color rather than the concept's soft gradient. The generated email illustration was added as a real raster asset after the first comparison. Native iOS safe areas account for the remaining vertical offset.
 
 ## Comparison history
 
-- Initial production check: the source contained transparency and was 1254 × 1254 px. It was flattened onto warm white and resized to 1024 × 1024 px.
-- Post-fix evidence: the installed Simulator icon preserves the selected design without transparency halos or clipped content.
+1. First simulator capture showed a dimmed primary button before typing and a generic system mail icon. Both were more visually prominent differences than the concept intended.
+2. The button now remains vivid green and reports inline validation when tapped with invalid email. The explainer uses a matching generated envelope illustration. `docs/design/sign-in/comparison.png` shows the post-fix visual comparison.
 
-## Implementation Checklist
+## Verification and limits
 
-- [x] Use the selected visual result.
-- [x] Remove alpha and produce a 1024 × 1024 production PNG.
-- [x] Connect the `AppIcon` asset catalog in the Swift package.
-- [x] Build, install, and inspect on the iPhone Simulator home screen.
-
-## Follow-up Polish
-
-No blocking polish items. A later brand pass could test a slightly flatter highlight for maximum clarity at notification-size scales.
+- `xcodebuild` for the iPhone 18 Pro simulator: passed.
+- Simulator launch and screenshot: passed.
+- Interactive tapping was not verified here because this Xcode installation provides a simulator runtime but no Simulator window app. The sign-in screen remains a design preview; no email is sent, no code is accepted, and no authenticated session is created.
+- A Settings entry exposes the preview while preserving the existing development identity and app workflow.
 
 final result: passed

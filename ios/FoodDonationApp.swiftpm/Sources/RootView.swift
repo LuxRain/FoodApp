@@ -225,6 +225,15 @@ private struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("Sign-in design") {
+                NavigationLink("Preview sign-in screen") {
+                    SignInPreviewView()
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+                Text("Preview only. No sign-in code is sent and your current development identity stays active.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Development server") {
                 TextField("API URL", text: $model.apiURL)
                     .textInputAutocapitalization(.never)
