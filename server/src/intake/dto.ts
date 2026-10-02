@@ -24,6 +24,7 @@ export class CreateItemDto {
   @IsString() productName!: string;
   @IsOptional() @IsString() brand?: string;
   @IsIn(["barcode", "qr", "gs1", "image", "manual"]) identitySource!: string;
+  @IsOptional() @IsString() scannedCode?: string;
   @IsNumber() @Min(0.001) quantity!: number;
   @IsString() quantityUnit!: string;
   @IsString() dateType!: string;

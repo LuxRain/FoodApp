@@ -12,8 +12,8 @@ enum DashboardLoadState {
 
 struct IntakeDraft: Identifiable {
     let id = UUID()
-    let scan: ParsedScan
-    let candidate: ProductCandidate
+    let scan: ParsedScan?
+    let candidate: ProductCandidate?
     var productName: String
     var brand: String
     var quantity = 1.0
@@ -33,13 +33,13 @@ struct IntakeDraft: Identifiable {
     var calories: Double?
     var calorieBasis: String?
 
-    init(scan: ParsedScan, candidate: ProductCandidate) {
+    init(scan: ParsedScan? = nil, candidate: ProductCandidate? = nil) {
         self.scan = scan
         self.candidate = candidate
-        productName = candidate.name
-        brand = candidate.brand ?? ""
-        calories = candidate.calories.map { NSDecimalNumber(decimal: $0).doubleValue }
-        calorieBasis = candidate.calorieBasis
+        productName = candidate?.name ?? ""
+        brand = candidate?.brand ?? ""
+        calories = candidate?.calories.map { NSDecimalNumber(decimal: $0).doubleValue }
+        calorieBasis = candidate?.calorieBasis
     }
 }
 
@@ -100,10 +100,12 @@ final class AppModel {
             throw AppValidationError("Scan a checksum-valid UPC, EAN, or GTIN for this MVP.")
         }
         let response = try await api().lookupProduct(.init(rawCode: scan.raw, scheme: scan.scheme))
-        guard let candidate = response.candidates.first else {
-            throw AppValidationError("No catalog product was found. Manual product creation is the next intake capability.")
-        }
-        return IntakeDraft(scan: scan, candidate: candidate)
+        return IntakeDraft(scan: scan, candidate: response.candidates.first)
+    }
+
+    func manualDraft(rawValue: String? = nil) -> IntakeDraft {
+        let scan = rawValue.map(ScanParser.parse)
+        return IntakeDraft(scan: scan)
     }
 
     func submit(_ draft: IntakeDraft) async throws -> SubmitItemResponse {
@@ -121,10 +123,11 @@ final class AppModel {
         }
 
         let itemBody = CreateItemRequest(
-            productId: draft.candidate.productId,
+            productId: draft.candidate?.productId,
             productName: draft.productName,
             brand: draft.brand.nilIfBlank,
-            identitySource: identitySource(for: draft.scan.scheme),
+            identitySource: draft.scan?.normalizedGTIN == nil ? "manual" : identitySource(for: draft.scan?.scheme ?? .unknown),
+            scannedCode: draft.scan?.raw.nilIfBlank,
             quantity: Decimal(draft.quantity),
             quantityUnit: draft.quantityUnit,
             dateType: draft.hasPrintedDate ? draft.dateType : "none",
@@ -137,8 +140,8 @@ final class AppModel {
             calorieStatus: draft.calories == nil ? "not_labeled" : "recorded",
             calories: draft.calories.map { Decimal($0) },
             calorieBasis: draft.calorieBasis,
-            allergens: acceptedAllergens(from: draft.candidate.allergens),
-            requiredFieldConfidence: [draft.candidate.confidence, 1, draft.hasPrintedDate ? 1 : 0.5]
+            allergens: acceptedAllergens(from: draft.candidate?.allergens ?? []),
+            requiredFieldConfidence: [draft.candidate?.confidence ?? 0.3, 1, draft.hasPrintedDate ? 1 : 0.5]
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys

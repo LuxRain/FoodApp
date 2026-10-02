@@ -68,6 +68,7 @@ public struct CreateItemRequest: Codable, Sendable {
     public let productName: String
     public let brand: String?
     public let identitySource: String
+    public let scannedCode: String?
     public let quantity: Decimal
     public let quantityUnit: String
     public let dateType: String
@@ -88,6 +89,7 @@ public struct CreateItemRequest: Codable, Sendable {
         productName: String,
         brand: String?,
         identitySource: String,
+        scannedCode: String? = nil,
         quantity: Decimal,
         quantityUnit: String,
         dateType: String,
@@ -107,6 +109,7 @@ public struct CreateItemRequest: Codable, Sendable {
         self.productName = productName
         self.brand = brand
         self.identitySource = identitySource
+        self.scannedCode = scannedCode
         self.quantity = quantity
         self.quantityUnit = quantityUnit
         self.dateType = dateType

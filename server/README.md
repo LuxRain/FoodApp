@@ -9,11 +9,17 @@ npm install
 docker compose up -d postgres
 psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/001_initial_schema.sql
 psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/002_development_seed.sql
+psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/003_manual_intake_code.sql
 cp .env.example .env
 npm run start:dev
 ```
 
 The development seed creates the demo organization, main receiving location, regular/admin users, and barcode `012345678905` for the Low-Sodium Black Beans test product. Apply it once to a new local database.
+If you already ran migrations 001 and 002, run only migration 003; the earlier scripts are not repeatable.
+
+## Manual product entry
+
+Items entered without a catalog match retain any scanned code for admin review. They remain pending review and do not appear as available inventory. On acceptance or quarantine, the server creates an organization-local product and inventory lot in one transaction. An unverified scanned code is not added to the trusted product-code catalog automatically.
 
 ## Package-photo evidence
 

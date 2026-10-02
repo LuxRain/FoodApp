@@ -23,6 +23,7 @@ The native build-system flag works around a SwiftPM/XCBuild property-list failur
 - a VisionKit barcode scanner for UPC/EAN, Code 128, QR, and GS1 DataBar symbols;
 - normalization through `FoodDonationCore.ScanParser`;
 - product lookup followed by a prefilled verification form;
+- manual product entry when no catalog match is found or lookup fails; unmatched items wait for admin review;
 - camera or photo-library capture of a package date and on-device Apple Vision text recognition;
 - extracted date text, source, and confidence in the verification form, with explicit confirmation before submission;
 - private upload of the selected package photo before item submission, with the photo visible from donation details;
@@ -31,6 +32,8 @@ The native build-system flag works around a SwiftPM/XCBuild property-list failur
 - manual barcode entry when scanning is unavailable, including in the simulator.
 
 The review form starts with **no printed date** rather than a guessed expiry. For a package with a date, take or choose a clear photo, compare the OCR result with the package, and tap **Confirm date matches package**. If OCR misses the date, use **Set printed date** and enter it manually. A submission without a printed date is routed for admin review. OCR runs on-device; the selected photo is converted to JPEG and uploaded privately before submission. Tap a donation on the dashboard to inspect its saved photo beside the confirmed date.
+
+To enter a product without a barcode, tap **Enter item manually** on the Scan tab. A valid but unmatched barcode opens the same form with the code retained. If lookup fails, choose Retry or Enter manually. Manual entry still requires the API for submission; it is not an offline save feature.
 
 Open `FoodDonationApp.swiftpm` in Xcode, choose an iPhone or simulator, and run the `Food Donation` scheme. The first physical-device run requires camera permission and ordinary Apple code signing.
 

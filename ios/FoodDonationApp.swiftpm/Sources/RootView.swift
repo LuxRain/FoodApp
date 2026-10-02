@@ -6,6 +6,9 @@ struct RootView: View {
     @State private var showingScanner = false
     @State private var reviewDraft: IntakeDraft?
     @State private var alertMessage: String?
+    @State private var showingLookupFailure = false
+    @State private var failedScanRawValue = ""
+    @State private var lookupFailureMessage = ""
 
     var body: some View {
         TabView {
@@ -16,9 +19,9 @@ struct RootView: View {
             .tabItem { Label("Dashboard", systemImage: "shippingbox") }
 
             NavigationStack {
-                ScanStartView(isLookingUp: model.isLookingUp) {
-                    showingScanner = true
-                }
+                ScanStartView(isLookingUp: model.isLookingUp,
+                              scan: { showingScanner = true },
+                              manualEntry: { reviewDraft = model.manualDraft() })
                 .navigationTitle("New intake")
             }
             .tabItem { Label("Scan", systemImage: "barcode.viewfinder") }
@@ -34,13 +37,7 @@ struct RootView: View {
         .sheet(isPresented: $showingScanner) {
             ScannerSheet { rawValue in
                 showingScanner = false
-                Task {
-                    do {
-                        reviewDraft = try await model.prepareDraft(rawValue: rawValue)
-                    } catch {
-                        alertMessage = error.localizedDescription
-                    }
-                }
+                Task { await lookUp(rawValue) }
             }
         }
         .sheet(item: $reviewDraft) { draft in
@@ -56,6 +53,27 @@ struct RootView: View {
             Button("OK", role: .cancel) { alertMessage = nil }
         } message: {
             Text(alertMessage ?? "")
+        }
+        .confirmationDialog("Could not look up product", isPresented: $showingLookupFailure, titleVisibility: .visible) {
+            Button("Retry lookup") {
+                Task { await lookUp(failedScanRawValue) }
+            }
+            Button("Enter manually") {
+                reviewDraft = model.manualDraft(rawValue: failedScanRawValue)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(lookupFailureMessage)
+        }
+    }
+
+    private func lookUp(_ rawValue: String) async {
+        do {
+            reviewDraft = try await model.prepareDraft(rawValue: rawValue)
+        } catch {
+            lookupFailureMessage = "\(error.localizedDescription) You can retry or enter the product details yourself."
+            failedScanRawValue = rawValue
+            showingLookupFailure = true
         }
     }
 
@@ -78,6 +96,7 @@ struct RootView: View {
 private struct ScanStartView: View {
     let isLookingUp: Bool
     let scan: () -> Void
+    let manualEntry: () -> Void
 
     var body: some View {
         ContentUnavailableView {
@@ -85,9 +104,13 @@ private struct ScanStartView: View {
         } description: {
             Text("Scan one packaged product. You will verify quantity, date, storage, and package condition before submission.")
         } actions: {
-            Button("Open scanner", action: scan)
-                .buttonStyle(.borderedProminent)
-                .disabled(isLookingUp)
+            VStack {
+                Button("Open scanner", action: scan)
+                    .buttonStyle(.borderedProminent)
+                Button("Enter item manually", action: manualEntry)
+                    .buttonStyle(.bordered)
+            }
+            .disabled(isLookingUp)
         }
     }
 }

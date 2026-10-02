@@ -24,10 +24,18 @@ struct IntakeReviewView: View {
                 Section("Product") {
                     TextField("Product name", text: $draft.productName)
                     TextField("Brand", text: $draft.brand)
-                    LabeledContent("Code", value: draft.candidate.normalizedCode)
-                        .font(.system(.body, design: .monospaced))
+                    if let code = draft.scan?.raw, !code.isEmpty {
+                        LabeledContent("Scanned code", value: code)
+                            .font(.system(.body, design: .monospaced))
+                    }
                     LabeledContent("Source", value: sourceLabel)
-                    LabeledContent("Confidence", value: draft.candidate.confidence.formatted(.percent.precision(.fractionLength(0))))
+                    if let candidate = draft.candidate {
+                        LabeledContent("Confidence", value: candidate.confidence.formatted(.percent.precision(.fractionLength(0))))
+                    } else {
+                        Label("No catalog match. Confirm the package details; an admin will review this item before it enters inventory.", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
 
                 Section("Quantity") {
@@ -155,13 +163,13 @@ struct IntakeReviewView: View {
                     }
                 }
 
-                if draft.calories != nil || !draft.candidate.allergens.isEmpty {
+                if draft.calories != nil || !(draft.candidate?.allergens.isEmpty ?? true) {
                     Section("Label information") {
                         if let calories = draft.calories {
                             LabeledContent("Calories", value: calories.formatted())
                             LabeledContent("Basis", value: (draft.calorieBasis ?? "unknown").replacingOccurrences(of: "_", with: " "))
                         }
-                        ForEach(draft.candidate.allergens, id: \.code) { allergen in
+                        ForEach(draft.candidate?.allergens ?? [], id: \.code) { allergen in
                             LabeledContent(allergen.code.replacingOccurrences(of: "_", with: " ").capitalized, value: allergen.declaration.replacingOccurrences(of: "_", with: " "))
                         }
                     }
@@ -211,7 +219,7 @@ struct IntakeReviewView: View {
     }
 
     private var sourceLabel: String {
-        draft.candidate.source.replacingOccurrences(of: "_", with: " ").capitalized
+        draft.candidate?.source.replacingOccurrences(of: "_", with: " ").capitalized ?? "Manual entry"
     }
 
     private func submitDraft() async {

@@ -85,4 +85,31 @@ if (!dashboard.items.some((entry) => entry.intakeItemId === item.id)) throw new 
 await request("/admin/review-queue", {}, 403);
 await request("/admin/review-queue", { headers: { "x-user-id": "admin-demo", "x-role": "admin" } });
 
-console.log(JSON.stringify({ productLookup: "passed", intakeItemId: item.id, inventoryLotId: submitted.inventoryLotId, evidence: "passed", idempotency: "passed", roleEnforcement: "passed", dashboard: "passed" }, null, 2));
+const manualItem = await request(`/intake-sessions/${session.id}/items`, {
+  method: "POST",
+  body: JSON.stringify({
+    productName: `Manual Product ${runID}`, brand: "Unknown Brand", identitySource: "manual", scannedCode: "not-a-valid-gtin",
+    quantity: 2, quantityUnit: "each", dateType: "none", storageType: "shelf_stable", storageLocationId: locationID,
+    packageCondition: "acceptable", temperatureStatus: "not_applicable", calorieStatus: "not_labeled", allergens: [],
+    requiredFieldConfidence: [0.3, 1, 0.5],
+  }),
+}, 201);
+const manualSubmitted = await request(`/intake-items/${manualItem.id}/submit`, {
+  method: "POST", headers: { "idempotency-key": `e2e-manual-submit-${runID}` },
+  body: JSON.stringify({ userReviewedAt: new Date().toISOString() }),
+}, 201);
+if (manualSubmitted.status !== "pending_admin_review" || manualSubmitted.inventoryLotId) throw new Error("Unresolved manual item entered inventory before review");
+const reviewQueue = await request("/admin/review-queue", { headers: { "x-user-id": "admin-demo", "x-role": "admin" } });
+const queuedManualItem = reviewQueue.items.find((entry) => entry.id === manualItem.id);
+if (queuedManualItem?.scannedCode !== "not-a-valid-gtin") throw new Error("Manual item's scanned code was not preserved for review");
+const manualDecision = await request(`/admin/intake-items/${manualItem.id}/decision`, {
+  method: "POST", headers: { "x-user-id": "admin-demo", "x-role": "admin", "idempotency-key": `e2e-manual-decision-${runID}` },
+  body: JSON.stringify({ decision: "accept", reason: "Package details verified in end-to-end test" }),
+}, 201);
+if (manualDecision.status !== "admin_accepted" || !manualDecision.inventoryLotId) throw new Error("Admin could not accept manual item into inventory");
+const manualDashboard = await request("/donation-items");
+if (!manualDashboard.items.some((entry) => entry.intakeItemId === manualItem.id && entry.inventoryLotId === manualDecision.inventoryLotId)) {
+  throw new Error("Accepted manual item is missing from inventory dashboard");
+}
+
+console.log(JSON.stringify({ productLookup: "passed", intakeItemId: item.id, inventoryLotId: submitted.inventoryLotId, evidence: "passed", idempotency: "passed", roleEnforcement: "passed", dashboard: "passed", manualReview: "passed" }, null, 2));

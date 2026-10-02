@@ -32,15 +32,15 @@ export class IntakeService {
   async createItem(actor: RequestActor, sessionId: string, dto: CreateItemDto) {
     const result = await this.db.query(
       `INSERT INTO intake_items (
-        organization_id, session_id, product_id, product_name, brand, identity_source, quantity, quantity_unit,
+        organization_id, session_id, product_id, product_name, brand, identity_source, scanned_code, quantity, quantity_unit,
         date_type, date_value, date_label_raw, storage_type, storage_location_id, package_condition,
         temperature_status, calorie_status, calories, calorie_basis, allergen_summary, required_field_confidence, status
       )
-      SELECT $1, s.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, l.id, $14, $15, $16, $17, $18, $19::jsonb, $20::jsonb, 'ready_for_user_review'
-      FROM intake_sessions s JOIN locations l ON l.id = $13 AND l.organization_id = s.organization_id
+      SELECT $1, s.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, l.id, $15, $16, $17, $18, $19, $20::jsonb, $21::jsonb, 'ready_for_user_review'
+      FROM intake_sessions s JOIN locations l ON l.id = $14 AND l.organization_id = s.organization_id
       WHERE s.id = $2 AND s.organization_id = $1
       RETURNING id, status, version`,
-      [actor.organizationId, sessionId, dto.productId ?? null, dto.productName, dto.brand ?? null, dto.identitySource,
+      [actor.organizationId, sessionId, dto.productId ?? null, dto.productName, dto.brand ?? null, dto.identitySource, dto.scannedCode ?? null,
         dto.quantity, dto.quantityUnit, dto.dateType, dto.dateValue ?? null, dto.dateLabelRaw ?? null, dto.storageType,
         dto.storageLocationId, dto.packageCondition, dto.temperatureStatus, dto.calorieStatus, dto.calories ?? null,
         dto.calorieBasis ?? null, JSON.stringify(dto.allergens), JSON.stringify(dto.requiredFieldConfidence)],
@@ -82,7 +82,7 @@ export class IntakeService {
 
   async reviewQueue(actor: RequestActor) {
     const result = await this.db.query(
-      `SELECT id, product_name AS "productName", quantity::float8, quantity_unit AS "quantityUnit", date_type AS "dateType", date_value AS "dateValue",
+      `SELECT id, product_name AS "productName", brand, scanned_code AS "scannedCode", identity_source AS "identitySource", quantity::float8, quantity_unit AS "quantityUnit", date_type AS "dateType", date_value AS "dateValue",
         storage_type AS "storageType", routing_reason_codes AS "routingReasonCodes", status, created_at AS "createdAt"
        FROM intake_items WHERE organization_id = $1 AND status IN ('pending_admin_review', 'quarantined') ORDER BY created_at`, [actor.organizationId],
     );
@@ -99,6 +99,16 @@ export class IntakeService {
       if (!item) throw new NotFoundException("Intake item not found");
       if (!['pending_admin_review', 'quarantined'].includes(item.status)) throw new ConflictException(`Item cannot be decided from ${item.status}`);
       const status = dto.decision === "accept" ? "admin_accepted" : dto.decision === "quarantine" ? "quarantined" : "rejected";
+      if ((status === "admin_accepted" || status === "quarantined") && !item.product_id) {
+        const product = await client.query<{ id: string }>(
+          `INSERT INTO products (organization_id, canonical_name, brand, category, default_unit)
+           SELECT organization_id, product_name, brand, 'uncategorized', quantity_unit
+           FROM intake_items WHERE id = $1 AND organization_id = $2 RETURNING id`,
+          [itemId, actor.organizationId],
+        );
+        item.product_id = product.rows[0].id;
+        await client.query("UPDATE intake_items SET product_id = $3 WHERE id = $1 AND organization_id = $2", [itemId, actor.organizationId, item.product_id]);
+      }
       await client.query("UPDATE intake_items SET status = $3::intake_status, decision_by = $4, decision_reason = $5, decided_at = now(), version = version + 1, updated_at = now() WHERE id = $1 AND organization_id = $2", [itemId, actor.organizationId, status, actor.userId, dto.reason]);
       let inventoryLotId: string | null = null;
       if (status === "admin_accepted" || status === "quarantined") inventoryLotId = await this.createInventory(client, actor, item, idempotencyKey, dto.reason, status === "quarantined");
