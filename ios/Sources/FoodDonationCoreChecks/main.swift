@@ -16,6 +16,10 @@ struct FoodDonationCoreChecks {
         let lookup = try JSONDecoder().decode(ProductLookupResponse.self, from: lookupData)
         precondition(lookup.candidates.first?.name == "Low-Sodium Black Beans")
         precondition(lookup.candidates.first?.productId?.uuidString == "00000000-0000-4000-8000-000000000201")
+        precondition(FoodCategory.from(raw: "canned_beans") == .cannedJarred)
+        precondition(FoodCategory.from(raw: "Smoked salmons") == .meatSeafood)
+        precondition(FoodCategory.meatSeafood.symbol == "fish")
+        precondition(FoodCategory.from(raw: nil) == .other)
 
         let labeledDate = DateLabelParser.bestMatch(in: [
             (text: "LOT 4827", confidence: 0.99),

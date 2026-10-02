@@ -38,6 +38,14 @@ struct IntakeReviewView: View {
                 Section("Product") {
                     TextField("Product name", text: $draft.productName)
                     TextField("Brand", text: $draft.brand)
+                    Picker("Category", selection: Binding(
+                        get: { FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue },
+                        set: { draft.category = $0 }
+                    )) {
+                        ForEach(FoodCategory.allCases) { category in
+                            Text(category.title).tag(category.rawValue)
+                        }
+                    }
                     if let code = draft.scan?.raw, !code.isEmpty {
                         LabeledContent("Scanned code", value: code)
                             .font(.system(.body, design: .monospaced))

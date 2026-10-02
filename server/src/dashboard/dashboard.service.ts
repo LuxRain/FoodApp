@@ -11,13 +11,13 @@ export class DashboardService {
     const orderBy: Record<string, string> = {
       received: "s.received_at DESC, i.date_value ASC NULLS LAST, i.id ASC",
       expiration: "i.date_value ASC NULLS LAST, s.received_at DESC, i.id ASC",
-      category: "COALESCE(NULLIF(p.category, ''), 'uncategorized') ASC, i.date_value ASC NULLS LAST, s.received_at DESC, i.id ASC",
+      category: "i.category ASC, i.date_value ASC NULLS LAST, s.received_at DESC, i.id ASC",
       name: "i.product_name ASC, i.date_value ASC NULLS LAST, s.received_at DESC, i.id ASC",
     };
     if (!Object.prototype.hasOwnProperty.call(orderBy, sort)) throw new BadRequestException("Unknown dashboard sort order");
     const result = await this.db.query(
       `SELECT i.id AS "intakeItemId", lot.id AS "inventoryLotId",
-        jsonb_build_object('name', i.product_name, 'brand', i.brand, 'category', p.category) AS product,
+        jsonb_build_object('name', i.product_name, 'brand', i.brand, 'category', i.category) AS product,
         jsonb_build_object('quantity', COALESCE(lot.on_hand_quantity, i.quantity)::float8, 'unit', COALESCE(lot.unit, i.quantity_unit)) AS "onHand",
         jsonb_build_object(
           'type', i.date_type,
@@ -37,7 +37,6 @@ export class DashboardService {
       FROM intake_items i
       JOIN intake_sessions s ON s.id = i.session_id
       JOIN locations loc ON loc.id = i.storage_location_id
-      LEFT JOIN products p ON p.id = i.product_id
       LEFT JOIN inventory_lots lot ON lot.intake_item_id = i.id
       WHERE i.organization_id = $1 AND ($2::text IS NULL OR i.product_name ILIKE '%' || $2 || '%' OR COALESCE(i.brand, '') ILIKE '%' || $2 || '%')
       ORDER BY ${orderBy[sort]}

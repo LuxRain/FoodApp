@@ -36,15 +36,15 @@ export class IntakeService {
       if (replay.rowCount) return replay.rows[0].result;
       const result = await client.query(
         `INSERT INTO intake_items (
-          organization_id, session_id, product_id, product_name, brand, identity_source, scanned_code, quantity, quantity_unit,
+          organization_id, session_id, product_id, product_name, brand, category, identity_source, scanned_code, quantity, quantity_unit,
           date_type, date_value, date_label_raw, storage_type, storage_location_id, package_condition,
           temperature_status, calorie_status, calories, calorie_basis, allergen_summary, required_field_confidence, status
         )
-        SELECT $1, s.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, l.id, $15, $16, $17, $18, $19, $20::jsonb, $21::jsonb, 'ready_for_user_review'
-        FROM intake_sessions s JOIN locations l ON l.id = $14 AND l.organization_id = s.organization_id
+        SELECT $1, s.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, l.id, $16, $17, $18, $19, $20, $21::jsonb, $22::jsonb, 'ready_for_user_review'
+        FROM intake_sessions s JOIN locations l ON l.id = $15 AND l.organization_id = s.organization_id
         WHERE s.id = $2 AND s.organization_id = $1
         RETURNING id, status, version`,
-        [actor.organizationId, sessionId, dto.productId ?? null, dto.productName, dto.brand ?? null, dto.identitySource, dto.scannedCode ?? null,
+        [actor.organizationId, sessionId, dto.productId ?? null, dto.productName, dto.brand ?? null, dto.category ?? "other", dto.identitySource, dto.scannedCode ?? null,
           dto.quantity, dto.quantityUnit, dto.dateType, dto.dateValue ?? null, dto.dateLabelRaw ?? null, dto.storageType,
           dto.storageLocationId, dto.packageCondition, dto.temperatureStatus, dto.calorieStatus, dto.calories ?? null,
           dto.calorieBasis ?? null, JSON.stringify(dto.allergens), JSON.stringify(dto.requiredFieldConfidence)],
@@ -89,7 +89,7 @@ export class IntakeService {
 
   async reviewQueue(actor: RequestActor) {
     const result = await this.db.query(
-      `SELECT i.id, i.product_name AS "productName", i.brand, i.scanned_code AS "scannedCode", i.identity_source AS "identitySource",
+      `SELECT i.id, i.product_name AS "productName", i.brand, i.category, i.scanned_code AS "scannedCode", i.identity_source AS "identitySource",
         i.quantity::float8, i.quantity_unit AS "quantityUnit", i.date_type AS "dateType", i.date_value AS "dateValue",
         i.date_label_raw AS "dateLabelRaw", i.storage_type AS "storageType", loc.name AS "storageLocationName",
         i.package_condition AS "packageCondition", i.temperature_status AS "temperatureStatus",
@@ -114,7 +114,7 @@ export class IntakeService {
       if ((status === "admin_accepted" || status === "quarantined") && !item.product_id) {
         const product = await client.query<{ id: string }>(
           `INSERT INTO products (organization_id, canonical_name, brand, category, default_unit)
-           SELECT organization_id, product_name, brand, 'uncategorized', quantity_unit
+          SELECT organization_id, product_name, brand, category, quantity_unit
            FROM intake_items WHERE id = $1 AND organization_id = $2 RETURNING id`,
           [itemId, actor.organizationId],
         );

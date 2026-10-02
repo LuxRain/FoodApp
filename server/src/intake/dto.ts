@@ -23,6 +23,7 @@ export class CreateItemDto {
   @IsOptional() @IsUUID() productId?: string;
   @IsString() productName!: string;
   @IsOptional() @IsString() brand?: string;
+  @IsOptional() @IsIn(["produce", "canned_jarred", "dry_goods_grains", "dairy_eggs", "meat_seafood", "prepared_meals", "bakery_snacks", "beverages", "infant_food", "other"]) category?: string;
   @IsIn(["barcode", "qr", "gs1", "image", "manual"]) identitySource!: string;
   @IsOptional() @IsString() scannedCode?: string;
   @IsNumber() @Min(0.001) quantity!: number;

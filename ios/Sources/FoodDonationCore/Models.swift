@@ -67,6 +67,7 @@ public struct CreateItemRequest: Codable, Sendable {
     public let productId: UUID?
     public let productName: String
     public let brand: String?
+    public let category: String?
     public let identitySource: String
     public let scannedCode: String?
     public let quantity: Decimal
@@ -88,6 +89,7 @@ public struct CreateItemRequest: Codable, Sendable {
         productId: UUID?,
         productName: String,
         brand: String?,
+        category: String? = nil,
         identitySource: String,
         scannedCode: String? = nil,
         quantity: Decimal,
@@ -108,6 +110,7 @@ public struct CreateItemRequest: Codable, Sendable {
         self.productId = productId
         self.productName = productName
         self.brand = brand
+        self.category = category
         self.identitySource = identitySource
         self.scannedCode = scannedCode
         self.quantity = quantity
@@ -167,6 +170,7 @@ public struct AdminReviewItem: Codable, Identifiable, Sendable {
     public let id: UUID
     public let productName: String
     public let brand: String?
+    public let category: String?
     public let scannedCode: String?
     public let identitySource: String
     public let quantity: Double

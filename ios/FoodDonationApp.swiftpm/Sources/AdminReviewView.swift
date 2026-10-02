@@ -1,6 +1,36 @@
 import FoodDonationCore
 import SwiftUI
 
+private enum ReviewReason: String, CaseIterable, Identifiable {
+    case productVerified
+    case packageAndDateVerified
+    case storageVerified
+    case identityUnclear
+    case dateUnclear
+    case packageConcern
+    case temperatureConcern
+    case evidenceConflict
+    case duplicateEntry
+    case other
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .productVerified: "Product identity verified"
+        case .packageAndDateVerified: "Package and printed date verified"
+        case .storageVerified: "Storage conditions verified"
+        case .identityUnclear: "Product identity cannot be verified"
+        case .dateUnclear: "Printed date missing or unclear"
+        case .packageConcern: "Package condition concern"
+        case .temperatureConcern: "Temperature or storage concern"
+        case .evidenceConflict: "Evidence or label details conflict"
+        case .duplicateEntry: "Duplicate intake record"
+        case .other: "Other — enter reason"
+        }
+    }
+}
+
 struct AdminReviewView: View {
     let model: AppModel
 
@@ -47,11 +77,6 @@ struct AdminReviewView: View {
             }
         }
         .task { await model.loadReviewQueue() }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.loadReviewQueue() } }
-            }
-        }
     }
 
     static func label(_ raw: String) -> String {
@@ -63,7 +88,8 @@ private struct AdminReviewDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let item: AdminReviewItem
     let model: AppModel
-    @State private var reason = ""
+    @State private var reasonChoice = ""
+    @State private var customReason = ""
     @State private var pendingDecision: String?
     @State private var isSubmitting = false
     @State private var errorMessage: String?
@@ -75,6 +101,7 @@ private struct AdminReviewDetailView: View {
             Section("Product") {
                 LabeledContent("Name", value: item.productName)
                 if let brand = item.brand { LabeledContent("Brand", value: brand) }
+                LabeledContent("Category", value: FoodCategory.from(raw: item.category).title)
                 if let code = item.scannedCode { LabeledContent("Scanned code", value: code) }
                 LabeledContent("Identity", value: AdminReviewView.label(item.identitySource))
                 LabeledContent("Quantity", value: "\(item.quantity.formatted()) \(item.quantityUnit)")
@@ -115,10 +142,20 @@ private struct AdminReviewDetailView: View {
             }
 
             Section("Decision") {
-                TextField("Reason for decision", text: $reason, axis: .vertical)
-                    .lineLimit(2...4)
-                    .focused($reasonFocused)
-                    .disabled(isSubmitting || lastAttemptedDecision != nil)
+                Picker("Reason for decision", selection: $reasonChoice) {
+                    Text("Select a reason").tag("")
+                    ForEach(ReviewReason.allCases) { option in
+                        Text(option.title).tag(option.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(isSubmitting || lastAttemptedDecision != nil)
+                if reasonChoice == ReviewReason.other.rawValue {
+                    TextField("Describe the reason", text: $customReason, axis: .vertical)
+                        .lineLimit(2...4)
+                        .focused($reasonFocused)
+                        .disabled(isSubmitting || lastAttemptedDecision != nil)
+                }
                 Text("Check the package, date, storage conditions, and any photo before deciding. A reason is required and will be recorded.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -169,6 +206,13 @@ private struct AdminReviewDetailView: View {
 
     private var decisionDisabled: Bool {
         isSubmitting || lastAttemptedDecision != nil || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var reason: String {
+        if reasonChoice == ReviewReason.other.rawValue {
+            return customReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return ReviewReason(rawValue: reasonChoice)?.title ?? ""
     }
 
     private var confirmationTitle: String {

@@ -24,18 +24,6 @@ struct DashboardView: View {
                 dashboard
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                if isLoading {
-                    ProgressView()
-                        .accessibilityLabel("Refreshing donations")
-                } else {
-                    Button("Refresh donations", systemImage: "arrow.clockwise") {
-                        Task { await model.loadDashboard() }
-                    }
-                }
-            }
-        }
         .safeAreaInset(edge: .bottom) {
             Button(action: scan) {
                 Label("Scan donation", systemImage: "barcode.viewfinder")
@@ -68,15 +56,7 @@ struct DashboardView: View {
                     .padding(.top, 40)
                 } else {
                     VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Donation records")
-                                    .font(.title2.bold())
-                                Text("Sorted by \(model.dashboardSort.title.lowercased())")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
+                        VStack(alignment: .leading, spacing: 3) {
                             Menu {
                                 ForEach(DashboardSort.allCases, id: \.self) { sort in
                                     Button {
@@ -91,10 +71,21 @@ struct DashboardView: View {
                                     }
                                 }
                             } label: {
-                                Label("Sort", systemImage: "arrow.up.arrow.down")
+                                HStack(spacing: 8) {
+                                    Text("Donation records")
+                                        .font(.title2.bold())
+                                        .foregroundStyle(.primary)
+                                    Image(systemName: "chevron.down")
+                                        .font(.subheadline.weight(.bold))
+                                        .foregroundStyle(.green)
+                                }
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.bordered)
-                            .accessibilityLabel("Sort donations")
+                            .accessibilityLabel("Sort donation records. Current order: \(model.dashboardSort.title)")
+                            Text("Sorted by \(model.dashboardSort.title.lowercased())")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         ForEach(model.dashboardItems) { item in
                             NavigationLink {
@@ -111,11 +102,6 @@ struct DashboardView: View {
         }
         .refreshable { await model.loadDashboard() }
         .scrollBounceBehavior(.always, axes: .vertical)
-    }
-
-    private var isLoading: Bool {
-        if case .loading = model.dashboardState { return true }
-        return false
     }
 
     private var summary: some View {
@@ -148,34 +134,46 @@ private struct DonationRow: View {
     let item: DonationDashboardItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(item.product.name)
-                    .font(.headline)
-                    .lineLimit(2)
-                Text("\(item.onHand.quantity.formatted()) \(item.onHand.unit)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-            }
-            Text(detail)
-                .font(.subheadline)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: category.symbol)
+                .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(.secondary)
-            if let warning {
-                HStack(spacing: 6) {
-                    Image(systemName: warning.icon)
-                        .foregroundStyle(warning.color)
-                    Text(warning.text)
+                .frame(width: 22, height: 22)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 24) {
+                    Text(displayName)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel(item.product.name)
+                    Text("\(item.onHand.quantity.formatted()) \(item.onHand.unit)")
+                        .font(.headline)
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(width: 100, alignment: .leading)
                 }
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(warning.color.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                if let warning {
+                    HStack(spacing: 6) {
+                        Image(systemName: warning.icon)
+                            .foregroundStyle(warning.color)
+                        Text(warning.text)
+                            .foregroundStyle(.primary)
+                    }
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(warning.color.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                }
+                Text("\(category.title) · \(statusLabel)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Text("\(categoryLabel) · \(statusLabel)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 9)
@@ -188,14 +186,17 @@ private struct DonationRow: View {
         return "\(type) \(value)"
     }
 
+    private var displayName: String {
+        let name = item.product.name
+        return name.count > 40 ? String(name.prefix(40)).trimmingCharacters(in: .whitespaces) + "…" : name
+    }
+
     private var statusLabel: String {
         item.intakeStatus.rawValue.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
-    private var categoryLabel: String {
-        (item.product.category ?? "Uncategorized")
-            .replacingOccurrences(of: "_", with: " ")
-            .capitalized
+    private var category: FoodCategory {
+        FoodCategory.from(raw: item.product.category)
     }
 
     private var warning: (text: String, icon: String, color: Color)? {

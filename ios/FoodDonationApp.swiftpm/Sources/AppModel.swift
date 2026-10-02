@@ -31,6 +31,7 @@ struct IntakeDraft: Codable, Identifiable, Sendable {
     let candidate: ProductCandidate?
     var productName: String
     var brand: String
+    var category: String?
     var quantity = 1.0
     var quantityUnit = "each"
     var dateType = "best_if_used_by"
@@ -54,6 +55,7 @@ struct IntakeDraft: Codable, Identifiable, Sendable {
         self.candidate = candidate
         productName = candidate?.name ?? ""
         brand = candidate?.brand ?? ""
+        category = FoodCategory.from(raw: candidate?.category).rawValue
         calories = candidate?.calories.map { NSDecimalNumber(decimal: $0).doubleValue }
         calorieBasis = candidate?.calorieBasis
     }
@@ -253,6 +255,7 @@ final class AppModel {
             productId: draft.candidate?.productId,
             productName: draft.productName,
             brand: draft.brand.nilIfBlank,
+            category: FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue,
             identitySource: draft.scan?.normalizedGTIN == nil ? "manual" : identitySource(for: draft.scan?.scheme ?? .unknown),
             scannedCode: draft.scan?.raw.nilIfBlank,
             quantity: Decimal(draft.quantity),

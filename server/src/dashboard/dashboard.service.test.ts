@@ -23,10 +23,10 @@ test("dashboard sorts before limiting and returns product category", async () =>
 
   assert.match(queries[0], /ORDER BY s\.received_at DESC, i\.date_value ASC NULLS LAST/);
   assert.match(queries[1], /ORDER BY i\.date_value ASC NULLS LAST, s\.received_at DESC/);
-  assert.match(queries[2], /ORDER BY COALESCE\(NULLIF\(p\.category, ''\), 'uncategorized'\) ASC/);
+  assert.match(queries[2], /ORDER BY i\.category ASC/);
   assert.match(queries[3], /ORDER BY i\.product_name ASC/);
   for (const sql of queries) {
-    assert.match(sql, /'category', p\.category/);
+    assert.match(sql, /'category', i\.category/);
     assert.ok(sql.indexOf("ORDER BY") < sql.indexOf("LIMIT $3"));
   }
 });
