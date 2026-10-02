@@ -4,6 +4,7 @@ import SwiftUI
 struct DashboardView: View {
     let model: AppModel
     let scan: () -> Void
+    let openReview: () -> Void
 
     var body: some View {
         Group {
@@ -107,7 +108,16 @@ struct DashboardView: View {
     private var summary: some View {
         HStack(spacing: 12) {
             metric(value: String(receivedToday), label: "Received today")
-            metric(value: String(needsReview), label: "Need review")
+            if model.userRole == .admin {
+                Button(action: openReview) {
+                    metric(value: String(needsReview), label: "Need review", showsChevron: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(needsReview) need review")
+                .accessibilityHint("Opens the review queue")
+            } else {
+                metric(value: String(needsReview), label: "Need review")
+            }
         }
     }
 
@@ -119,10 +129,18 @@ struct DashboardView: View {
         model.dashboardItems.filter { [.pendingAdminReview, .quarantined].contains($0.intakeStatus) }.count
     }
 
-    private func metric(value: String, label: String) -> some View {
+    private func metric(value: String, label: String, showsChevron: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(value).font(.largeTitle.bold())
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text(label).font(.caption).foregroundStyle(.secondary)
+                if showsChevron {
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.green)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
@@ -131,14 +149,16 @@ struct DashboardView: View {
 }
 
 private struct DonationRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     let item: DonationDashboardItem
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: category.symbol)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 22, height: 22)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(iconColor)
+                .frame(width: 34, height: 34)
+                .background(colorScheme == .dark ? Color.white.opacity(0.94) : Color.black.opacity(0.88), in: Circle())
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 24) {
@@ -197,6 +217,35 @@ private struct DonationRow: View {
 
     private var category: FoodCategory {
         FoodCategory.from(raw: item.product.category)
+    }
+
+    private var iconColor: Color {
+        if colorScheme == .dark {
+            return switch category {
+            case .produce: Color(red: 0.05, green: 0.45, blue: 0.24)
+            case .cannedJarred: Color(red: 0.59, green: 0.29, blue: 0.02)
+            case .dryGoodsGrains: Color(red: 0.48, green: 0.36, blue: 0.02)
+            case .dairyEggs: Color(red: 0.12, green: 0.34, blue: 0.62)
+            case .meatSeafood: Color(red: 0.63, green: 0.18, blue: 0.15)
+            case .preparedMeals: Color(red: 0.02, green: 0.42, blue: 0.40)
+            case .bakerySnacks: Color(red: 0.40, green: 0.23, blue: 0.59)
+            case .beverages: Color(red: 0.02, green: 0.40, blue: 0.55)
+            case .infantFood: Color(red: 0.56, green: 0.19, blue: 0.38)
+            case .other: Color(white: 0.30)
+            }
+        }
+        return switch category {
+        case .produce: .green
+        case .cannedJarred: .orange
+        case .dryGoodsGrains: .yellow
+        case .dairyEggs: .cyan
+        case .meatSeafood: .red
+        case .preparedMeals: .mint
+        case .bakerySnacks: .purple
+        case .beverages: .blue
+        case .infantFood: .pink
+        case .other: Color(white: 0.70)
+        }
     }
 
     private var warning: (text: String, icon: String, color: Color)? {

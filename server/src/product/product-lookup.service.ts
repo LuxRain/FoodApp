@@ -5,6 +5,7 @@ import { DatabaseService } from "../database/database.service";
 type OpenFoodFactsProduct = {
   code?: string;
   product_name?: string;
+  generic_name?: string;
   brands?: string;
   categories?: string;
   serving_size?: string;
@@ -52,18 +53,19 @@ export class ProductLookupService {
   private async lookupOpenFoodFacts(code: string, _scheme: string): Promise<ProductCandidate | null> {
     const userAgent = process.env.OPEN_FOOD_FACTS_USER_AGENT;
     if (!userAgent) throw new BadGatewayException("External product lookup is not configured");
-    const fields = "code,product_name,brands,categories,serving_size,allergens_tags,traces_tags,nutriments";
+    const fields = "code,product_name,generic_name,brands,categories,serving_size,allergens_tags,traces_tags,nutriments";
     const url = new URL(`https://world.openfoodfacts.org/api/v3/product/${encodeURIComponent(code)}`);
-    url.searchParams.set("product_type", "food"); url.searchParams.set("cc", "us"); url.searchParams.set("lc", "en"); url.searchParams.set("fields", fields);
+    url.searchParams.set("product_type", "food"); url.searchParams.set("fields", fields);
     const response = await fetch(url, { headers: { "User-Agent": userAgent, Accept: "application/json" }, signal: AbortSignal.timeout(5_000) });
     if (response.status === 404) return null;
     if (!response.ok) throw new BadGatewayException(`Product provider returned ${response.status}`);
     const payload = await response.json() as OpenFoodFactsResponse;
     const product = payload.product;
-    if (!product?.product_name) return null;
+    const name = product?.product_name?.trim() || product?.generic_name?.trim();
+    if (!product || !name) return null;
     const calories = product.nutriments?.["energy-kcal_serving"] ?? product.nutriments?.["energy-kcal_100g"] ?? null;
     return {
-      productId: null, normalizedCode: code, name: product.product_name, brand: product.brands ?? null,
+      productId: null, normalizedCode: code, name, brand: product.brands ?? null,
       category: product.categories?.split(",")[0]?.trim() || null, calories,
       calorieBasis: product.nutriments?.["energy-kcal_serving"] != null ? "per_serving" : calories != null ? "per_100g" : null,
       servingSize: product.serving_size ?? null,

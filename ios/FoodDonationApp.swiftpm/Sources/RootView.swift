@@ -1,8 +1,13 @@
 import FoodDonationCore
 import SwiftUI
 
+private enum AppTab: Hashable {
+    case dashboard, scan, saved, review, settings
+}
+
 struct RootView: View {
     @State private var model = AppModel()
+    @State private var selectedTab: AppTab = .dashboard
     @State private var showingScanner = false
     @State private var reviewDraft: IntakeDraft?
     @State private var alertMessage: String?
@@ -11,12 +16,13 @@ struct RootView: View {
     @State private var lookupFailureMessage = ""
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             NavigationStack {
-                DashboardView(model: model, scan: { showingScanner = true })
+                DashboardView(model: model, scan: { showingScanner = true }, openReview: { selectedTab = .review })
                     .navigationTitle("Donations")
             }
             .tabItem { Label("Dashboard", systemImage: "shippingbox") }
+            .tag(AppTab.dashboard)
 
             NavigationStack {
                 ScanStartView(isLookingUp: model.isLookingUp,
@@ -25,6 +31,7 @@ struct RootView: View {
                 .navigationTitle("New intake")
             }
             .tabItem { Label("Scan", systemImage: "barcode.viewfinder") }
+            .tag(AppTab.scan)
 
             NavigationStack {
                 SavedDraftsView(model: model) { draft in
@@ -33,6 +40,7 @@ struct RootView: View {
                 .navigationTitle("Saved drafts")
             }
             .tabItem { Label("Saved", systemImage: "tray.full") }
+            .tag(AppTab.saved)
 
             if model.userRole == .admin {
                 NavigationStack {
@@ -40,6 +48,7 @@ struct RootView: View {
                         .navigationTitle("Review queue")
                 }
                 .tabItem { Label("Review", systemImage: "checklist") }
+                .tag(AppTab.review)
             }
 
             NavigationStack {
@@ -47,8 +56,12 @@ struct RootView: View {
                     .navigationTitle("Settings")
             }
             .tabItem { Label("Settings", systemImage: "gearshape") }
+            .tag(AppTab.settings)
         }
         .tint(.green)
+        .onChange(of: model.userRole) { _, role in
+            if role != .admin && selectedTab == .review { selectedTab = .dashboard }
+        }
         .task {
             await model.loadSavedDrafts()
             await model.loadDashboard()

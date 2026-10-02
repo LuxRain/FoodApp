@@ -90,6 +90,7 @@ private struct AdminReviewDetailView: View {
     let model: AppModel
     @State private var reasonChoice = ""
     @State private var customReason = ""
+    @State private var showingReasonMenu = false
     @State private var pendingDecision: String?
     @State private var isSubmitting = false
     @State private var errorMessage: String?
@@ -142,14 +143,52 @@ private struct AdminReviewDetailView: View {
             }
 
             Section("Decision") {
-                Picker("Reason for decision", selection: $reasonChoice) {
-                    Text("Select a reason").tag("")
-                    ForEach(ReviewReason.allCases) { option in
-                        Text(option.title).tag(option.rawValue)
+                Button {
+                    showingReasonMenu = true
+                } label: {
+                    HStack {
+                        Text("Reason for decision")
+                        Spacer()
+                        Text(ReviewReason(rawValue: reasonChoice)?.title ?? "Select a reason")
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .pickerStyle(.menu)
                 .disabled(isSubmitting || lastAttemptedDecision != nil)
+                .popover(isPresented: $showingReasonMenu, arrowEdge: .top) {
+                    VStack(spacing: 0) {
+                        ForEach(ReviewReason.allCases) { option in
+                            Button {
+                                reasonChoice = option.rawValue
+                                showingReasonMenu = false
+                            } label: {
+                                HStack {
+                                    Text(option.title)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.85)
+                                    Spacer(minLength: 8)
+                                    if reasonChoice == option.rawValue {
+                                        Image(systemName: "checkmark")
+                                            .accessibilityHidden(true)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            if option != ReviewReason.allCases.last {
+                                Divider()
+                            }
+                        }
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 16)
+                    .frame(width: 340)
+                    .presentationCompactAdaptation(.popover)
+                }
                 if reasonChoice == ReviewReason.other.rawValue {
                     TextField("Describe the reason", text: $customReason, axis: .vertical)
                         .lineLimit(2...4)
