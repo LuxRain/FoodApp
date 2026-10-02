@@ -27,16 +27,23 @@ const session = await request("/intake-sessions", {
   body: JSON.stringify({ receivingLocationId: locationID, receivedAt: new Date().toISOString(), sourceChannel: "walk_in", clientMutationId: `e2e-session-${runID}` }),
 }, 201);
 
-const item = await request(`/intake-sessions/${session.id}/items`, {
-  method: "POST",
-  body: JSON.stringify({
+const itemPayload = {
     productId: productID, productName: "Low-Sodium Black Beans", brand: "Community Pantry", identitySource: "barcode",
     quantity: 12, quantityUnit: "can", dateType: "best_if_used_by", dateValue: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
     dateLabelRaw: "BEST IF USED BY — verified in end-to-end test", storageType: "shelf_stable", storageLocationId: locationID,
     packageCondition: "acceptable", temperatureStatus: "not_applicable", calorieStatus: "recorded", calories: 110,
     calorieBasis: "per_serving", allergens: [], requiredFieldConfidence: [0.99, 0.96, 0.94],
-  }),
+};
+const item = await request(`/intake-sessions/${session.id}/items`, {
+  method: "POST",
+  headers: { "idempotency-key": `e2e-item-${runID}` },
+  body: JSON.stringify(itemPayload),
 }, 201);
+const replayedItem = await request(`/intake-sessions/${session.id}/items`, {
+  method: "POST", headers: { "idempotency-key": `e2e-item-${runID}` },
+  body: JSON.stringify(itemPayload),
+}, 201);
+if (replayedItem.id !== item.id) throw new Error("Item creation retry produced a duplicate");
 
 const onePixelPNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
 const evidenceForm = new FormData();
@@ -87,6 +94,7 @@ await request("/admin/review-queue", { headers: { "x-user-id": "admin-demo", "x-
 
 const manualItem = await request(`/intake-sessions/${session.id}/items`, {
   method: "POST",
+  headers: { "idempotency-key": `e2e-manual-item-${runID}` },
   body: JSON.stringify({
     productName: `Manual Product ${runID}`, brand: "Unknown Brand", identitySource: "manual", scannedCode: "not-a-valid-gtin",
     quantity: 2, quantityUnit: "each", dateType: "none", storageType: "shelf_stable", storageLocationId: locationID,
@@ -118,6 +126,7 @@ if (!manualDashboard.items.some((entry) => entry.intakeItemId === manualItem.id 
 async function createPendingManualItem(suffix) {
   const created = await request(`/intake-sessions/${session.id}/items`, {
     method: "POST",
+    headers: { "idempotency-key": `e2e-${suffix}-item-${runID}` },
     body: JSON.stringify({
       productName: `Manual ${suffix} ${runID}`, identitySource: "manual", quantity: 3, quantityUnit: "each",
       dateType: "none", storageType: "shelf_stable", storageLocationId: locationID,

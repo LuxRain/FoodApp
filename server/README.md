@@ -34,6 +34,7 @@ Until managed OIDC is connected, requests use development-only actor headers:
 - `x-role: regular_user|admin`
 
 Mutating submit/decision requests also require `Idempotency-Key`.
+Creating an intake item also requires `Idempotency-Key`; replaying a request with the same key returns the original item. The iOS saved-draft flow persists that key before sending so a retry after an app restart does not create a duplicate item.
 
 The server is authoritative for field-confidence routing, shelf-life policy, role enforcement, urgency, inventory creation, and idempotency.
 The admin review queue includes the fields needed to inspect an intake item before deciding. A quarantined lot remains unavailable; later acceptance releases the same lot, while rejection disposes it and records the outgoing movement.

@@ -1,4 +1,3 @@
-import CryptoKit
 import FoodDonationCore
 import Foundation
 import Observation
@@ -10,8 +9,8 @@ enum DashboardLoadState {
     case failed(String)
 }
 
-struct IntakeDraft: Identifiable {
-    let id = UUID()
+struct IntakeDraft: Codable, Identifiable, Sendable {
+    let id: UUID
     let scan: ParsedScan?
     let candidate: ProductCandidate?
     var productName: String
@@ -33,7 +32,8 @@ struct IntakeDraft: Identifiable {
     var calories: Double?
     var calorieBasis: String?
 
-    init(scan: ParsedScan? = nil, candidate: ProductCandidate? = nil) {
+    init(id: UUID = UUID(), scan: ParsedScan? = nil, candidate: ProductCandidate? = nil) {
+        self.id = id
         self.scan = scan
         self.candidate = candidate
         productName = candidate?.name ?? ""
@@ -46,13 +46,6 @@ struct IntakeDraft: Identifiable {
 @MainActor
 @Observable
 final class AppModel {
-    private struct SubmissionAttempt {
-        let itemID: UUID
-        let idempotencyKey: String
-        let itemBody: Data
-        let photoHash: String?
-    }
-
     private struct AdminDecisionAttempt {
         let decision: String
         let reason: String
@@ -82,15 +75,41 @@ final class AppModel {
     private(set) var isLookingUp = false
     private(set) var reviewQueueState: DashboardLoadState = .idle
     private(set) var reviewItems: [AdminReviewItem] = []
-    private var submissionAttempts: [UUID: SubmissionAttempt] = [:]
+    private(set) var savedDrafts: [SavedIntakeDraft] = []
+    private(set) var savedDraftsError: String?
+    private let draftStore: LocalIntakeDraftStore
     private var adminDecisionAttempts: [UUID: AdminDecisionAttempt] = [:]
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, draftDirectory: URL? = nil) {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        draftStore = LocalIntakeDraftStore(directory: draftDirectory ?? support.appending(path: "FoodDonation/SavedDrafts", directoryHint: .isDirectory))
         apiURL = defaults.string(forKey: "apiURL") ?? Defaults.apiURL
         organizationID = defaults.string(forKey: "organizationID") ?? Defaults.organizationID
         locationID = defaults.string(forKey: "locationID") ?? Defaults.locationID
         userID = defaults.string(forKey: "userID") ?? Defaults.userID
         userRole = UserRole(rawValue: defaults.string(forKey: "userRole") ?? "") ?? Defaults.userRole
+    }
+
+    func loadSavedDrafts() async {
+        do {
+            savedDrafts = try await draftStore.loadAll()
+            savedDraftsError = nil
+        } catch {
+            savedDraftsError = "Could not read saved drafts: \(error.localizedDescription)"
+        }
+    }
+
+    func saveDraft(_ draft: IntakeDraft) async throws {
+        var record = savedDrafts.first { $0.id == draft.id } ?? newSavedDraft(draft)
+        guard !record.isLocked else { throw AppValidationError("This draft is already queued for submission. Retry it instead of editing.") }
+        try verifyIdentity(for: record)
+        record.draft = draft
+        record.savedAt = .now
+        try await persist(record)
+    }
+
+    func isDraftLocked(_ id: UUID) -> Bool {
+        savedDrafts.first { $0.id == id }?.isLocked ?? false
     }
 
     func loadDashboard() async {
@@ -121,20 +140,92 @@ final class AppModel {
     }
 
     func submit(_ draft: IntakeDraft) async throws -> SubmitItemResponse {
-        guard let storageLocationID = UUID(uuidString: locationID) else {
-            throw AppValidationError("The storage location ID in Settings is not a valid UUID.")
-        }
-        guard !draft.productName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        var record = savedDrafts.first { $0.id == draft.id } ?? newSavedDraft(draft)
+        try verifyIdentity(for: record)
+        let submittedDraft = record.isLocked ? record.draft : draft
+        guard !submittedDraft.productName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AppValidationError("Product name is required.")
         }
-        guard draft.quantity > 0 else {
+        guard submittedDraft.quantity > 0 else {
             throw AppValidationError("Quantity must be greater than zero.")
         }
-        if draft.hasPrintedDate && (draft.dateValue == nil || !draft.dateConfirmed) {
+        if submittedDraft.hasPrintedDate && (submittedDraft.dateValue == nil || !submittedDraft.dateConfirmed) {
             throw AppValidationError("Confirm the actual printed date before submitting.")
         }
+        guard let storageLocationID = UUID(uuidString: record.locationID) else {
+            throw AppValidationError("The storage location ID in Settings is not a valid UUID.")
+        }
+        if !record.isLocked {
+            record.draft = submittedDraft
+            record.itemRequest = makeItemRequest(from: submittedDraft, locationID: storageLocationID)
+            record.userReviewedAt = .now
+            record.isLocked = true
+            record.savedAt = .now
+            try await persist(record)
+        }
+        guard let itemRequest = record.itemRequest, let reviewedAt = record.userReviewedAt else {
+            throw AppValidationError("The saved submission is incomplete. Contact an administrator before retrying.")
+        }
+        let client = try api()
+        if record.sessionID == nil {
+            let session = try await client.createSession(.init(
+                receivingLocationId: storageLocationID,
+                receivedAt: record.receivedAt,
+                sourceChannel: "walk_in",
+                clientMutationId: record.sessionMutationID
+            ))
+            record.sessionID = session.id
+            try await persist(record)
+        }
+        if record.itemID == nil {
+            let item = try await client.createItem(sessionID: record.sessionID!, body: itemRequest, idempotencyKey: record.itemMutationID)
+            record.itemID = item.id
+            try await persist(record)
+        }
+        if let photo = record.draft.packagePhotoData {
+            _ = try await client.uploadEvidence(
+                itemID: record.itemID!,
+                jpegData: photo,
+                capturedAt: record.draft.packagePhotoCapturedAt ?? record.receivedAt
+            )
+        }
+        let response = try await client.submitItem(
+            itemID: record.itemID!,
+            body: .init(userReviewedAt: reviewedAt),
+            idempotencyKey: record.submitMutationID
+        )
+        try await draftStore.delete(id: record.id)
+        savedDrafts.removeAll { $0.id == record.id }
+        await loadDashboard()
+        return response
+    }
 
-        let itemBody = CreateItemRequest(
+    private func newSavedDraft(_ draft: IntakeDraft) -> SavedIntakeDraft {
+        let key = draft.id.uuidString
+        return SavedIntakeDraft(
+            draft: draft, organizationID: organizationID, locationID: locationID, userID: userID, userRole: userRole,
+            sessionMutationID: "ios-session-\(key)", itemMutationID: "ios-item-\(key)", submitMutationID: "ios-submit-\(key)",
+            receivedAt: .now, savedAt: .now
+        )
+    }
+
+    private func verifyIdentity(for record: SavedIntakeDraft) throws {
+        guard record.organizationID == organizationID, record.locationID == locationID,
+              record.userID == userID, record.userRole == userRole else {
+            throw AppValidationError("Switch Settings back to the identity and location used for this saved draft before submitting it.")
+        }
+    }
+
+    private func persist(_ record: SavedIntakeDraft) async throws {
+        try await draftStore.save(record)
+        savedDrafts.removeAll { $0.id == record.id }
+        savedDrafts.insert(record, at: 0)
+        savedDrafts.sort { $0.savedAt > $1.savedAt }
+        savedDraftsError = nil
+    }
+
+    private func makeItemRequest(from draft: IntakeDraft, locationID: UUID) -> CreateItemRequest {
+        CreateItemRequest(
             productId: draft.candidate?.productId,
             productName: draft.productName,
             brand: draft.brand.nilIfBlank,
@@ -146,7 +237,7 @@ final class AppModel {
             dateValue: draft.hasPrintedDate ? draft.dateValue.map(Self.dateFormatter.string(from:)) : nil,
             dateLabelRaw: draft.hasPrintedDate ? draft.dateLabelRaw.nilIfBlank : nil,
             storageType: draft.storageType,
-            storageLocationId: storageLocationID,
+            storageLocationId: locationID,
             packageCondition: draft.packageCondition,
             temperatureStatus: draft.temperatureStatus,
             calorieStatus: draft.calories == nil ? "not_labeled" : "recorded",
@@ -155,45 +246,6 @@ final class AppModel {
             allergens: acceptedAllergens(from: draft.candidate?.allergens ?? []),
             requiredFieldConfidence: [draft.candidate?.confidence ?? 0.3, 1, draft.hasPrintedDate ? 1 : 0.5]
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        let encodedBody = try encoder.encode(itemBody)
-        let photoHash = draft.packagePhotoData.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
-        let client = try api()
-        let attempt: SubmissionAttempt
-        if let pending = submissionAttempts[draft.id], pending.itemBody == encodedBody, pending.photoHash == photoHash {
-            attempt = pending
-        } else {
-            let session = try await client.createSession(.init(
-                receivingLocationId: storageLocationID,
-                receivedAt: .now,
-                sourceChannel: "walk_in",
-                clientMutationId: "ios-session-\(UUID().uuidString)"
-            ))
-            let item = try await client.createItem(sessionID: session.id, body: itemBody)
-            attempt = SubmissionAttempt(
-                itemID: item.id,
-                idempotencyKey: "ios-submit-\(UUID().uuidString)",
-                itemBody: encodedBody,
-                photoHash: photoHash
-            )
-            submissionAttempts[draft.id] = attempt
-        }
-        if let photo = draft.packagePhotoData {
-            _ = try await client.uploadEvidence(
-                itemID: attempt.itemID,
-                jpegData: photo,
-                capturedAt: draft.packagePhotoCapturedAt ?? .now
-            )
-        }
-        let response = try await client.submitItem(
-            itemID: attempt.itemID,
-            body: .init(userReviewedAt: .now),
-            idempotencyKey: attempt.idempotencyKey
-        )
-        submissionAttempts[draft.id] = nil
-        await loadDashboard()
-        return response
     }
 
     func evidence(for itemID: UUID) async throws -> [EvidenceAsset] {

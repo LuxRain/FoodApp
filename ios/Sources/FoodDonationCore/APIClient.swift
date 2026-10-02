@@ -40,8 +40,8 @@ public actor FoodDonationAPI {
         try await send("v1/product-lookups", method: "POST", body: body)
     }
 
-    public func createItem(sessionID: UUID, body: CreateItemRequest) async throws -> IntakeItemResponse {
-        try await send("v1/intake-sessions/\(sessionID.uuidString)/items", method: "POST", body: body)
+    public func createItem(sessionID: UUID, body: CreateItemRequest, idempotencyKey: String) async throws -> IntakeItemResponse {
+        try await send("v1/intake-sessions/\(sessionID.uuidString)/items", method: "POST", body: body, idempotencyKey: idempotencyKey)
     }
 
     public func uploadEvidence(itemID: UUID, jpegData: Data, capturedAt: Date) async throws -> EvidenceAsset {

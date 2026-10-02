@@ -20,7 +20,7 @@ export class IntakeController {
   createSession(@Actor() actor: RequestActor, @Body() body: CreateSessionDto) { return this.intake.createSession(actor, body); }
 
   @Post("intake-sessions/:sessionId/items")
-  createItem(@Actor() actor: RequestActor, @Param("sessionId") sessionId: string, @Body() body: CreateItemDto) { return this.intake.createItem(actor, sessionId, body); }
+  createItem(@Actor() actor: RequestActor, @Param("sessionId") sessionId: string, @Body() body: CreateItemDto, @Headers("idempotency-key") key: string) { return this.intake.createItem(actor, sessionId, body, key); }
 
   @Post("intake-items/:itemId/submit")
   submit(@Actor() actor: RequestActor, @Param("itemId") itemId: string, @Body() body: SubmitItemDto, @Headers("idempotency-key") key: string) { return this.intake.submitItem(actor, itemId, body, key); }

@@ -7,20 +7,34 @@ struct IntakeReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: IntakeDraft
     @State private var isSubmitting = false
+    @State private var isSaving = false
+    @State private var isLocked: Bool
     @State private var isReadingPhoto = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showingCamera = false
     @State private var errorMessage: String?
     let submit: (IntakeDraft) async throws -> Void
+    let save: (IntakeDraft) async throws -> Void
+    let isLockedAfterFailure: (UUID) -> Bool
 
-    init(draft: IntakeDraft, submit: @escaping (IntakeDraft) async throws -> Void) {
+    init(draft: IntakeDraft, initiallyLocked: Bool, submit: @escaping (IntakeDraft) async throws -> Void,
+         save: @escaping (IntakeDraft) async throws -> Void, isLockedAfterFailure: @escaping (UUID) -> Bool) {
         _draft = State(initialValue: draft)
+        _isLocked = State(initialValue: initiallyLocked)
         self.submit = submit
+        self.save = save
+        self.isLockedAfterFailure = isLockedAfterFailure
     }
 
     var body: some View {
         NavigationStack {
             Form {
+                if isLocked {
+                    Section {
+                        Label("Saved on this iPhone. Details are locked while submission is pending; retry when the server is available.", systemImage: "tray.full")
+                            .foregroundStyle(.orange)
+                    }
+                }
                 Section("Product") {
                     TextField("Product name", text: $draft.productName)
                     TextField("Brand", text: $draft.brand)
@@ -181,18 +195,27 @@ struct IntakeReviewView: View {
                     }
                 }
             }
+            .disabled(isLocked)
             .navigationTitle("Verify donation")
             .navigationBarTitleDisplayMode(.inline)
-            .interactiveDismissDisabled(isSubmitting)
+            .interactiveDismissDisabled(isSubmitting || isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.disabled(isSubmitting)
+                    Button(isLocked ? "Close" : "Cancel") { dismiss() }.disabled(isSubmitting || isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isSubmitting ? "Submitting" : "Submit") {
+                    Button(isSubmitting ? "Submitting" : isLocked ? "Retry" : "Submit") {
                         Task { await submitDraft() }
                     }
-                    .disabled(isSubmitting || isReadingPhoto || (draft.hasPrintedDate && !draft.dateConfirmed))
+                    .disabled(isSubmitting || isSaving || isReadingPhoto || (draft.hasPrintedDate && !draft.dateConfirmed))
+                }
+                ToolbarItem(placement: .bottomBar) {
+                    if !isLocked {
+                        Button(isSaving ? "Saving" : "Save on this iPhone", systemImage: "tray.and.arrow.down") {
+                            Task { await saveDraft() }
+                        }
+                        .disabled(isSaving || isSubmitting || isReadingPhoto)
+                    }
                 }
             }
             .sheet(isPresented: $showingCamera) {
@@ -229,8 +252,21 @@ struct IntakeReviewView: View {
             try await submit(draft)
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            isLocked = isLockedAfterFailure(draft.id)
+            errorMessage = isLocked ? "Submission did not complete. This item is saved on this iPhone; retry when connected. \(error.localizedDescription)" : error.localizedDescription
             isSubmitting = false
+        }
+    }
+
+    private func saveDraft() async {
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+        do {
+            try await save(draft)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

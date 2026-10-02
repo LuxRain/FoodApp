@@ -29,24 +29,31 @@ export class IntakeService {
     return result.rows[0];
   }
 
-  async createItem(actor: RequestActor, sessionId: string, dto: CreateItemDto) {
-    const result = await this.db.query(
-      `INSERT INTO intake_items (
-        organization_id, session_id, product_id, product_name, brand, identity_source, scanned_code, quantity, quantity_unit,
-        date_type, date_value, date_label_raw, storage_type, storage_location_id, package_condition,
-        temperature_status, calorie_status, calories, calorie_basis, allergen_summary, required_field_confidence, status
-      )
-      SELECT $1, s.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, l.id, $15, $16, $17, $18, $19, $20::jsonb, $21::jsonb, 'ready_for_user_review'
-      FROM intake_sessions s JOIN locations l ON l.id = $14 AND l.organization_id = s.organization_id
-      WHERE s.id = $2 AND s.organization_id = $1
-      RETURNING id, status, version`,
-      [actor.organizationId, sessionId, dto.productId ?? null, dto.productName, dto.brand ?? null, dto.identitySource, dto.scannedCode ?? null,
-        dto.quantity, dto.quantityUnit, dto.dateType, dto.dateValue ?? null, dto.dateLabelRaw ?? null, dto.storageType,
-        dto.storageLocationId, dto.packageCondition, dto.temperatureStatus, dto.calorieStatus, dto.calories ?? null,
-        dto.calorieBasis ?? null, JSON.stringify(dto.allergens), JSON.stringify(dto.requiredFieldConfidence)],
-    );
-    if (!result.rowCount) throw new BadRequestException("Session or storage location is invalid");
-    return result.rows[0];
+  async createItem(actor: RequestActor, sessionId: string, dto: CreateItemDto, idempotencyKey: string) {
+    if (!idempotencyKey) throw new BadRequestException("Idempotency-Key header is required");
+    return this.db.transaction(async (client) => {
+      const replay = await client.query("SELECT result FROM sync_mutations WHERE organization_id = $1 AND client_mutation_id = $2", [actor.organizationId, idempotencyKey]);
+      if (replay.rowCount) return replay.rows[0].result;
+      const result = await client.query(
+        `INSERT INTO intake_items (
+          organization_id, session_id, product_id, product_name, brand, identity_source, scanned_code, quantity, quantity_unit,
+          date_type, date_value, date_label_raw, storage_type, storage_location_id, package_condition,
+          temperature_status, calorie_status, calories, calorie_basis, allergen_summary, required_field_confidence, status
+        )
+        SELECT $1, s.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, l.id, $15, $16, $17, $18, $19, $20::jsonb, $21::jsonb, 'ready_for_user_review'
+        FROM intake_sessions s JOIN locations l ON l.id = $14 AND l.organization_id = s.organization_id
+        WHERE s.id = $2 AND s.organization_id = $1
+        RETURNING id, status, version`,
+        [actor.organizationId, sessionId, dto.productId ?? null, dto.productName, dto.brand ?? null, dto.identitySource, dto.scannedCode ?? null,
+          dto.quantity, dto.quantityUnit, dto.dateType, dto.dateValue ?? null, dto.dateLabelRaw ?? null, dto.storageType,
+          dto.storageLocationId, dto.packageCondition, dto.temperatureStatus, dto.calorieStatus, dto.calories ?? null,
+          dto.calorieBasis ?? null, JSON.stringify(dto.allergens), JSON.stringify(dto.requiredFieldConfidence)],
+      );
+      if (!result.rowCount) throw new BadRequestException("Session or storage location is invalid");
+      const response = result.rows[0];
+      await client.query("INSERT INTO sync_mutations (organization_id, client_mutation_id, result) VALUES ($1, $2, $3::jsonb)", [actor.organizationId, idempotencyKey, JSON.stringify(response)]);
+      return response;
+    });
   }
 
   async submitItem(actor: RequestActor, itemId: string, dto: SubmitItemDto, idempotencyKey: string) {

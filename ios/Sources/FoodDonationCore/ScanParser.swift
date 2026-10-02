@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ScanCodeScheme: String, Codable, Sendable { case upcA = "upc_a", ean8 = "ean_8", ean13 = "ean_13", gtin14 = "gtin_14", gs1, qr, code128 = "code_128", unknown }
-public struct ParsedScan: Equatable, Sendable { public let scheme: ScanCodeScheme; public let raw: String; public let normalizedGTIN: String?; public let lot: String?; public let dateYYMMDD: String? }
+public struct ParsedScan: Codable, Equatable, Sendable { public let scheme: ScanCodeScheme; public let raw: String; public let normalizedGTIN: String?; public let lot: String?; public let dateYYMMDD: String? }
 
 public enum ScanParser {
     public static func parse(_ raw: String) -> ParsedScan {

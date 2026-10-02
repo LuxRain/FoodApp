@@ -26,6 +26,14 @@ struct RootView: View {
             }
             .tabItem { Label("Scan", systemImage: "barcode.viewfinder") }
 
+            NavigationStack {
+                SavedDraftsView(model: model) { draft in
+                    reviewDraft = draft
+                }
+                .navigationTitle("Saved drafts")
+            }
+            .tabItem { Label("Saved", systemImage: "tray.full") }
+
             if model.userRole == .admin {
                 NavigationStack {
                     AdminReviewView(model: model)
@@ -41,7 +49,10 @@ struct RootView: View {
             .tabItem { Label("Settings", systemImage: "gearshape") }
         }
         .tint(.green)
-        .task { await model.loadDashboard() }
+        .task {
+            await model.loadSavedDrafts()
+            await model.loadDashboard()
+        }
         .sheet(isPresented: $showingScanner) {
             ScannerSheet { rawValue in
                 showingScanner = false
@@ -49,10 +60,16 @@ struct RootView: View {
             }
         }
         .sheet(item: $reviewDraft) { draft in
-            IntakeReviewView(draft: draft) { updatedDraft in
-                let result = try await model.submit(updatedDraft)
-                alertMessage = receiptMessage(for: result)
-            }
+            IntakeReviewView(
+                draft: draft,
+                initiallyLocked: model.isDraftLocked(draft.id),
+                submit: { updatedDraft in
+                    let result = try await model.submit(updatedDraft)
+                    alertMessage = receiptMessage(for: result)
+                },
+                save: { updatedDraft in try await model.saveDraft(updatedDraft) },
+                isLockedAfterFailure: { model.isDraftLocked($0) }
+            )
         }
         .alert("Food Donation", isPresented: Binding(
             get: { alertMessage != nil },

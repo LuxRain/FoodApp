@@ -100,7 +100,7 @@ struct FoodDonationCoreChecks {
             calorieBasis: nil,
             allergens: [],
             requiredFieldConfidence: [1, 1, 1]
-        ))
+        ), idempotencyKey: "swift-item-\(runID)")
         let testJPEG = Data(base64Encoded: "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYyLjExLjEwMAD/2wBDAAgKCgsKCw0NDQ0NDRAPEBAQEBAQEBAQEBASEhIVFRUSEhIQEBISFBQVFRcXFxUVFRUXFxkZGR4eHBwjIyQrKzP/xABMAAEBAAAAAAAAAAAAAAAAAAAABgEBAQAAAAAAAAAAAAAAAAAABgcQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAQABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCtAR06f//Z")!
         let uploaded = try await api.uploadEvidence(itemID: item.id, jpegData: testJPEG, capturedAt: .now)
         precondition(uploaded.intakeItemId == item.id)
@@ -138,7 +138,7 @@ struct FoodDonationCoreChecks {
             calorieBasis: nil,
             allergens: [],
             requiredFieldConfidence: [0.3, 1, 0.5]
-        ))
+        ), idempotencyKey: "swift-manual-item-\(runID)")
         let manualSubmission = try await api.submitItem(
             itemID: manualItem.id,
             body: .init(userReviewedAt: .now),
