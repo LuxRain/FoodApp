@@ -24,6 +24,18 @@ struct DashboardView: View {
                 dashboard
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if isLoading {
+                    ProgressView()
+                        .accessibilityLabel("Refreshing donations")
+                } else {
+                    Button("Refresh donations", systemImage: "arrow.clockwise") {
+                        Task { await model.loadDashboard() }
+                    }
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             Button(action: scan) {
                 Label("Scan donation", systemImage: "barcode.viewfinder")
@@ -39,6 +51,11 @@ struct DashboardView: View {
     private var dashboard: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
+                if case let .failed(message) = model.dashboardState {
+                    Label("Could not refresh: \(message)", systemImage: "wifi.exclamationmark")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 summary
 
                 if model.dashboardItems.isEmpty {
@@ -67,6 +84,12 @@ struct DashboardView: View {
             .padding()
         }
         .refreshable { await model.loadDashboard() }
+        .scrollBounceBehavior(.always, axes: .vertical)
+    }
+
+    private var isLoading: Bool {
+        if case .loading = model.dashboardState { return true }
+        return false
     }
 
     private var summary: some View {
