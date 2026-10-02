@@ -55,9 +55,9 @@ struct PackageEvidenceView: View {
                                 .scaledToFit()
                                 .frame(maxWidth: .infinity)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .accessibilityLabel("Date label photo")
+                                .accessibilityLabel(asset.evidenceType == "date_label" ? "Date label photo" : "Package photo")
                         }
-                        Text("Date label · \(asset.capturedAt.formatted(date: .abbreviated, time: .shortened))")
+                        Text("\(asset.evidenceType == "date_label" ? "Date label" : "Package photo") · \(asset.capturedAt.formatted(date: .abbreviated, time: .shortened))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

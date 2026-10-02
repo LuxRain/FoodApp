@@ -25,6 +25,12 @@ enum DashboardSort: String, CaseIterable {
     }
 }
 
+struct IntakePhoto: Codable, Identifiable, Sendable {
+    let id: UUID
+    var jpegData: Data?
+    let capturedAt: Date
+}
+
 struct IntakeDraft: Codable, Identifiable, Sendable {
     let id: UUID
     let scan: ParsedScan?
@@ -43,6 +49,8 @@ struct IntakeDraft: Codable, Identifiable, Sendable {
     var dateConfirmed = false
     var packagePhotoData: Data?
     var packagePhotoCapturedAt: Date?
+    // Optional so drafts saved by earlier app versions remain decodable.
+    var referencePhotos: [IntakePhoto]?
     var storageType = "shelf_stable"
     var packageCondition = "acceptable"
     var temperatureStatus = "not_applicable"
@@ -148,6 +156,10 @@ final class AppModel {
         }
     }
 
+    func searchDonations(query: String, sort: DashboardSort) async throws -> [DonationDashboardItem] {
+        try await api().donationItems(search: query, sort: sort.rawValue).items
+    }
+
     func prepareDraft(rawValue: String) async throws -> IntakeDraft {
         isLookingUp = true
         defer { isLookingUp = false }
@@ -175,6 +187,8 @@ final class AppModel {
         guard submittedDraft.quantity > 0 else {
             throw AppValidationError("Quantity must be greater than zero.")
         }
+        let photoCount = (submittedDraft.referencePhotos ?? []).count + (submittedDraft.packagePhotoData == nil ? 0 : 1)
+        guard photoCount <= 8 else { throw AppValidationError("Attach no more than eight package photos.") }
         if submittedDraft.hasPrintedDate && (submittedDraft.dateValue == nil || !submittedDraft.dateConfirmed) {
             throw AppValidationError("Confirm the actual printed date before submitting.")
         }
@@ -212,8 +226,14 @@ final class AppModel {
             _ = try await client.uploadEvidence(
                 itemID: record.itemID!,
                 jpegData: photo,
-                capturedAt: record.draft.packagePhotoCapturedAt ?? record.receivedAt
+                capturedAt: record.draft.packagePhotoCapturedAt ?? record.receivedAt,
+                evidenceType: "date_label"
             )
+        }
+        for photo in record.draft.referencePhotos ?? [] {
+            guard let jpegData = photo.jpegData else { throw AppValidationError("A saved package photo is missing. Restore the draft before retrying.") }
+            _ = try await client.uploadEvidence(itemID: record.itemID!, jpegData: jpegData,
+                                                capturedAt: photo.capturedAt, evidenceType: "package_photo")
         }
         let response = try await client.submitItem(
             itemID: record.itemID!,

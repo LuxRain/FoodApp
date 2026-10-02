@@ -32,7 +32,8 @@ export class IntakeController {
     @Param("itemId") itemId: string,
     @UploadedFile() file: { buffer: Buffer; size: number; mimetype: string } | undefined,
     @Body("capturedAt") capturedAt?: string,
-  ) { return this.evidence.upload(actor, itemId, file, capturedAt); }
+    @Body("evidenceType") evidenceType?: string,
+  ) { return this.evidence.upload(actor, itemId, file, capturedAt, evidenceType); }
 
   @Get("intake-items/:itemId/evidence")
   listEvidence(@Actor() actor: RequestActor, @Param("itemId") itemId: string) { return this.evidence.list(actor, itemId); }

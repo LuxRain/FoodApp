@@ -16,6 +16,7 @@ type EvidenceRow = {
 };
 
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+const MAX_PHOTOS_PER_ITEM = 8;
 
 @Injectable()
 export class EvidenceService {
@@ -23,7 +24,7 @@ export class EvidenceService {
 
   constructor(private readonly db: DatabaseService) {}
 
-  async upload(actor: RequestActor, itemId: string, file: { buffer: Buffer; size: number; mimetype: string } | undefined, capturedAtRaw: string | undefined) {
+  async upload(actor: RequestActor, itemId: string, file: { buffer: Buffer; size: number; mimetype: string } | undefined, capturedAtRaw: string | undefined, evidenceTypeRaw?: string) {
     this.assertUUID(itemId);
     if (!file?.buffer?.length || file.size > MAX_PHOTO_BYTES) throw new BadRequestException("Upload one photo up to 10 MB");
     const extension = this.detectImage(file.buffer);
@@ -33,30 +34,37 @@ export class EvidenceService {
     }
     const capturedAt = capturedAtRaw ? new Date(capturedAtRaw) : new Date();
     if (Number.isNaN(capturedAt.getTime())) throw new BadRequestException("capturedAt must be a valid date");
-    await this.requireItem(actor, itemId);
+    const evidenceType = evidenceTypeRaw ?? "date_label";
+    if (!['date_label', 'package_photo'].includes(evidenceType)) throw new BadRequestException("Invalid evidence type");
 
     const hash = createHash("sha256").update(file.buffer).digest("hex");
-    const existing = await this.db.query<EvidenceRow>(
-      "SELECT * FROM evidence_assets WHERE intake_item_id = $1 AND content_hash = $2 AND evidence_type = 'date_label' LIMIT 1",
-      [itemId, hash],
-    );
-    if (existing.rows[0]) return this.publicAsset(existing.rows[0]);
-
-    const objectKey = `${actor.organizationId}/${itemId}/${randomUUID()}.${extension}`;
-    const filePath = this.filePath(objectKey);
-    await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
-    await writeFile(filePath, file.buffer, { flag: "wx", mode: 0o600 });
-    try {
-      const result = await this.db.query<EvidenceRow>(
-        `INSERT INTO evidence_assets (intake_item_id, object_key, content_hash, evidence_type, captured_at, malware_scan_state)
-         VALUES ($1, $2, $3, 'date_label', $4, 'not_scanned') RETURNING *`,
-        [itemId, objectKey, hash, capturedAt],
+    return this.db.transaction(async (client) => {
+      const item = await client.query("SELECT id FROM intake_items WHERE id = $1 AND organization_id = $2 FOR UPDATE", [itemId, actor.organizationId]);
+      if (!item.rowCount) throw new NotFoundException("Intake item not found");
+      const existing = await client.query<EvidenceRow>(
+        "SELECT * FROM evidence_assets WHERE intake_item_id = $1 AND content_hash = $2 LIMIT 1",
+        [itemId, hash],
       );
-      return this.publicAsset(result.rows[0]);
-    } catch (error) {
-      await unlink(filePath).catch(() => {});
-      throw error;
-    }
+      if (existing.rows[0]) return this.publicAsset(existing.rows[0]);
+      const count = await client.query<{ count: number }>("SELECT COUNT(*)::int AS count FROM evidence_assets WHERE intake_item_id = $1", [itemId]);
+      if (count.rows[0].count >= MAX_PHOTOS_PER_ITEM) throw new BadRequestException("An intake item can have at most eight photos");
+
+      const objectKey = `${actor.organizationId}/${itemId}/${randomUUID()}.${extension}`;
+      const filePath = this.filePath(objectKey);
+      await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
+      await writeFile(filePath, file.buffer, { flag: "wx", mode: 0o600 });
+      try {
+        const result = await client.query<EvidenceRow>(
+          `INSERT INTO evidence_assets (intake_item_id, object_key, content_hash, evidence_type, captured_at, malware_scan_state)
+           VALUES ($1, $2, $3, $4, $5, 'not_scanned') RETURNING *`,
+          [itemId, objectKey, hash, evidenceType, capturedAt],
+        );
+        return this.publicAsset(result.rows[0]);
+      } catch (error) {
+        await unlink(filePath).catch(() => {});
+        throw error;
+      }
+    });
   }
 
   async list(actor: RequestActor, itemId: string) {

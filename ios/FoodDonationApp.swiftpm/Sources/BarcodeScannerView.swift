@@ -8,6 +8,7 @@ struct ScannerSheet: View {
     @State private var showingManualEntry = false
     @State private var manualCode = "012345678905"
     let onScan: (String) -> Void
+    let onNoBarcode: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -25,6 +26,19 @@ struct ScannerSheet: View {
                             .buttonStyle(.borderedProminent)
                     }
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    dismiss()
+                    onNoBarcode()
+                } label: {
+                    Label("Barcode unreadable? Add photos", systemImage: "camera.fill")
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding()
+                .background(.regularMaterial)
             }
             .navigationTitle("Scan package")
             .navigationBarTitleDisplayMode(.inline)

@@ -44,11 +44,12 @@ public actor FoodDonationAPI {
         try await send("v1/intake-sessions/\(sessionID.uuidString)/items", method: "POST", body: body, idempotencyKey: idempotencyKey)
     }
 
-    public func uploadEvidence(itemID: UUID, jpegData: Data, capturedAt: Date) async throws -> EvidenceAsset {
+    public func uploadEvidence(itemID: UUID, jpegData: Data, capturedAt: Date, evidenceType: String) async throws -> EvidenceAsset {
         let boundary = "FoodDonation-\(UUID().uuidString)"
         var body = Data()
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"capturedAt\"\r\n\r\n\(ISO8601DateFormatter().string(from: capturedAt))\r\n".utf8))
-        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"date-label.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"evidenceType\"\r\n\r\n\(evidenceType)\r\n".utf8))
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"package-photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
         body.append(jpegData)
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
 

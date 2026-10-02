@@ -10,8 +10,12 @@ struct IntakeReviewView: View {
     @State private var isSaving = false
     @State private var isLocked: Bool
     @State private var isReadingPhoto = false
+    @State private var isAddingPhotos = false
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var selectedPackagePhotos: [PhotosPickerItem] = []
     @State private var showingCamera = false
+    @State private var showingPackageCamera = false
+    @State private var previewPhoto: IntakePhoto?
     @State private var errorMessage: String?
     let submit: (IntakeDraft) async throws -> Void
     let save: (IntakeDraft) async throws -> Void
@@ -54,9 +58,75 @@ struct IntakeReviewView: View {
                     if let candidate = draft.candidate {
                         LabeledContent("Confidence", value: candidate.confidence.formatted(.percent.precision(.fractionLength(0))))
                     } else {
-                        Label("No catalog match. Confirm the package details; an admin will review this item before it enters inventory.", systemImage: "exclamationmark.triangle")
+                        Label("No catalog match. Add package photos and confirm what you can; an admin will review this item before it enters inventory.", systemImage: "exclamationmark.triangle")
                             .font(.caption)
                             .foregroundStyle(.orange)
+                    }
+                }
+
+                if draft.candidate == nil {
+                    Section("Package photos (\(photoCount)/8)") {
+                        Text("Take photos of the front, ingredients, nutrition facts, barcode, and other useful sides. Enter the product name yourself before submitting; photos help an admin review it but are not yet read automatically. The date-label photo counts toward the eight-photo limit.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if !(draft.referencePhotos ?? []).isEmpty {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                                ForEach(draft.referencePhotos ?? []) { photo in
+                                    if let data = photo.jpegData, let image = UIImage(data: data) {
+                                        ZStack(alignment: .topTrailing) {
+                                            Button {
+                                                previewPhoto = photo
+                                            } label: {
+                                                Image(uiImage: image)
+                                                    .resizable()
+                                                    .scaledToFill()
+                                                    .frame(height: 96)
+                                                    .frame(maxWidth: .infinity)
+                                                    .clipped()
+                                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                            }
+                                            .buttonStyle(.plain)
+                                            .accessibilityLabel("Preview package photo")
+                                            Button {
+                                                draft.referencePhotos?.removeAll { $0.id == photo.id }
+                                            } label: {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.title2)
+                                                    .foregroundStyle(.white)
+                                                    .shadow(color: .black.opacity(0.8), radius: 2)
+                                                    .frame(width: 44, height: 44)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .accessibilityLabel("Remove package photo")
+                                            .disabled(isAddingPhotos || isSubmitting)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        HStack(spacing: 0) {
+                            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                                Button { showingPackageCamera = true } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "camera")
+                                        Text("Take photo")
+                                    }
+                                    .font(.subheadline.weight(.semibold))
+                                    .frame(minHeight: 44)
+                                }
+                                Spacer(minLength: 24)
+                            }
+                            PhotosPicker(selection: $selectedPackagePhotos, maxSelectionCount: max(1, 8 - photoCount), matching: .images) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "photo.on.rectangle")
+                                    Text("Choose photos")
+                                }
+                                .font(.subheadline.weight(.semibold))
+                                .frame(minHeight: 44)
+                            }
+                        }
+                        .disabled(photoCount >= 8 || isAddingPhotos || isReadingPhoto || isSubmitting)
+                        if isAddingPhotos { ProgressView("Adding photos…") }
                     }
                 }
 
@@ -73,11 +143,31 @@ struct IntakeReviewView: View {
 
                 Section("Package date") {
                     if let data = draft.packagePhotoData, let image = UIImage(data: data) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 180)
-                            .accessibilityLabel("Selected package date photo")
+                        ZStack(alignment: .topTrailing) {
+                            Button {
+                                previewPhoto = IntakePhoto(id: draft.id, jpegData: data,
+                                                          capturedAt: draft.packagePhotoCapturedAt ?? .now)
+                            } label: {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(maxHeight: 180)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Preview date-label photo")
+                            Button {
+                                removeDatePhoto()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.white)
+                                    .shadow(color: .black.opacity(0.8), radius: 2)
+                                    .frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove date-label photo")
+                            .disabled(isReadingPhoto || isSubmitting)
+                        }
                     }
                     HStack {
                         if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -87,7 +177,7 @@ struct IntakeReviewView: View {
                             Label("Choose photo", systemImage: "photo")
                         }
                     }
-                    .disabled(isReadingPhoto || isSubmitting)
+                    .disabled(isReadingPhoto || isAddingPhotos || isSubmitting || (draft.packagePhotoData == nil && photoCount >= 8))
 
                     if isReadingPhoto {
                         ProgressView("Reading printed date…")
@@ -215,14 +305,14 @@ struct IntakeReviewView: View {
                     Button(isSubmitting ? "Submitting" : isLocked ? "Retry" : "Submit") {
                         Task { await submitDraft() }
                     }
-                    .disabled(isSubmitting || isSaving || isReadingPhoto || (draft.hasPrintedDate && !draft.dateConfirmed))
+                    .disabled(isSubmitting || isSaving || isReadingPhoto || isAddingPhotos || (draft.hasPrintedDate && !draft.dateConfirmed))
                 }
                 ToolbarItem(placement: .bottomBar) {
                     if !isLocked {
                         Button(isSaving ? "Saving" : "Save on this iPhone", systemImage: "tray.and.arrow.down") {
                             Task { await saveDraft() }
                         }
-                        .disabled(isSaving || isSubmitting || isReadingPhoto)
+                        .disabled(isSaving || isSubmitting || isReadingPhoto || isAddingPhotos)
                     }
                 }
             }
@@ -231,6 +321,13 @@ struct IntakeReviewView: View {
                     Task { await readPhoto(data) }
                 }
                 .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showingPackageCamera) {
+                PackagePhotoCamera { data in addPackagePhoto(data) }
+                    .ignoresSafeArea()
+            }
+            .fullScreenCover(item: $previewPhoto) { photo in
+                PackagePhotoPreviewView(photos: previewPhotos, initialPhotoID: photo.id)
             }
             .onChange(of: selectedPhoto) { _, photo in
                 guard let photo else { return }
@@ -246,11 +343,74 @@ struct IntakeReviewView: View {
                     }
                 }
             }
+            .onChange(of: selectedPackagePhotos) { _, photos in
+                guard !photos.isEmpty else { return }
+                Task {
+                    isAddingPhotos = true
+                    defer {
+                        selectedPackagePhotos = []
+                        isAddingPhotos = false
+                    }
+                    for photo in photos {
+                        do {
+                            guard let data = try await photo.loadTransferable(type: Data.self) else {
+                                throw AppValidationError("Could not load a selected photo.")
+                            }
+                            addPackagePhoto(data)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            }
         }
     }
 
     private var sourceLabel: String {
-        draft.candidate?.source.replacingOccurrences(of: "_", with: " ").capitalized ?? "Manual entry"
+        if let source = draft.candidate?.source { return source.replacingOccurrences(of: "_", with: " ").capitalized }
+        return draft.scan == nil ? "Manual entry" : "Barcode without catalog match"
+    }
+
+    private var photoCount: Int {
+        (draft.referencePhotos ?? []).count + (draft.packagePhotoData == nil ? 0 : 1)
+    }
+
+    private var previewPhotos: [IntakePhoto] {
+        var photos = draft.referencePhotos ?? []
+        if let data = draft.packagePhotoData {
+            photos.append(IntakePhoto(id: draft.id, jpegData: data,
+                                      capturedAt: draft.packagePhotoCapturedAt ?? .now))
+        }
+        return photos
+    }
+
+    private func addPackagePhoto(_ data: Data) {
+        guard photoCount < 8 else {
+            errorMessage = "The eight-photo limit has been reached. Remove a photo to add another."
+            return
+        }
+        do {
+            let jpeg = try PackageDateOCR.normalizedJPEG(from: data)
+            var photos = draft.referencePhotos ?? []
+            photos.append(IntakePhoto(id: UUID(), jpegData: jpeg, capturedAt: .now))
+            draft.referencePhotos = photos
+            errorMessage = nil
+        } catch {
+            errorMessage = "Could not add photo: \(error.localizedDescription)"
+        }
+    }
+
+    private func removeDatePhoto() {
+        draft.packagePhotoData = nil
+        draft.packagePhotoCapturedAt = nil
+        if draft.dateSource == "Package photo" || draft.dateSource == "Photo, corrected" {
+            draft.hasPrintedDate = false
+            draft.dateValue = nil
+            draft.dateLabelRaw = ""
+            draft.dateSource = "Not captured"
+            draft.dateConfidence = nil
+            draft.dateConfirmed = false
+        }
     }
 
     private func submitDraft() async {
@@ -279,6 +439,10 @@ struct IntakeReviewView: View {
     }
 
     private func readPhoto(_ data: Data) async {
+        guard draft.packagePhotoData != nil || photoCount < 8 else {
+            errorMessage = "The eight-photo limit has been reached. Remove a photo to add the date label."
+            return
+        }
         isReadingPhoto = true
         errorMessage = nil
         defer { isReadingPhoto = false }
@@ -303,5 +467,64 @@ struct IntakeReviewView: View {
         } catch {
             errorMessage = "Could not read the photo: \(error.localizedDescription)"
         }
+    }
+}
+
+private struct PackagePhotoPreviewView: View {
+    @Environment(\.dismiss) private var dismiss
+    let photos: [IntakePhoto]
+    @State private var selectedPhotoID: UUID
+
+    init(photos: [IntakePhoto], initialPhotoID: UUID) {
+        self.photos = photos
+        _selectedPhotoID = State(initialValue: initialPhotoID)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            TabView(selection: $selectedPhotoID) {
+                ForEach(photos) { photo in
+                    ZStack {
+                        Color.black
+                        if let data = photo.jpegData, let image = UIImage(data: data) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { dismiss() }
+                    .tag(photo.id)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea()
+        }
+        .overlay(alignment: .top) {
+            HStack {
+                Text("\((photos.firstIndex { $0.id == selectedPhotoID } ?? 0) + 1) of \(photos.count)")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .background(.white.opacity(0.18), in: Circle())
+                }
+                .accessibilityLabel("Close photo preview")
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+        }
+        .overlay(alignment: .bottom) {
+            Text(photos.count > 1 ? "Swipe for another photo · Tap to close" : "Tap to close")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.8))
+                .padding(.bottom, 16)
+        }
+        .statusBarHidden()
     }
 }

@@ -24,7 +24,7 @@ Items entered without a catalog match retain any scanned code for admin review. 
 
 ## Package-photo evidence
 
-The API accepts a `photo` multipart field at `POST /v1/intake-items/:itemId/evidence` after the intake item is created and before submission. JPEG and PNG files up to 10 MB are supported. The optional `capturedAt` field is an ISO date. The response contains the evidence ID; `GET /v1/intake-items/:itemId/evidence` lists an item's assets, and `GET /v1/intake-items/:itemId/evidence/:evidenceId` returns the private image bytes.
+The API accepts a `photo` multipart field at `POST /v1/intake-items/:itemId/evidence` after the intake item is created and before submission. JPEG and PNG files up to 10 MB are supported, with a maximum of eight distinct photos per item. Set `evidenceType` to `date_label` or `package_photo` (`date_label` is the default for older clients); the optional `capturedAt` field is an ISO date. Uploading identical bytes again returns the existing asset, so retrying a saved draft does not duplicate photos. The response contains the evidence ID; `GET /v1/intake-items/:itemId/evidence` lists an item's assets, and `GET /v1/intake-items/:itemId/evidence/:evidenceId` returns the private image bytes.
 
 Files are stored under `server/var/evidence/` by default, outside the public web root, with metadata and a SHA-256 hash in PostgreSQL. Set `EVIDENCE_STORAGE_DIR` to an absolute directory for a persistent deployment. Back up that directory together with the database. This is local pilot storage; it does not yet provide object-store replication or malware scanning. The `malware_scan_state` value is recorded as `not_scanned` rather than implying a scan occurred.
 

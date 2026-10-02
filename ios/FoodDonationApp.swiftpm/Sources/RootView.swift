@@ -9,6 +9,7 @@ struct RootView: View {
     @State private var model = AppModel()
     @State private var selectedTab: AppTab = .dashboard
     @State private var showingScanner = false
+    @State private var openPhotoFallbackAfterScanner = false
     @State private var reviewDraft: IntakeDraft?
     @State private var alertMessage: String?
     @State private var showingLookupFailure = false
@@ -66,11 +67,19 @@ struct RootView: View {
             await model.loadSavedDrafts()
             await model.loadDashboard()
         }
-        .sheet(isPresented: $showingScanner) {
-            ScannerSheet { rawValue in
+        .sheet(isPresented: $showingScanner, onDismiss: {
+            if openPhotoFallbackAfterScanner {
+                openPhotoFallbackAfterScanner = false
+                reviewDraft = model.manualDraft()
+            }
+        }) {
+            ScannerSheet(onScan: { rawValue in
                 showingScanner = false
                 Task { await lookUp(rawValue) }
-            }
+            }, onNoBarcode: {
+                openPhotoFallbackAfterScanner = true
+                showingScanner = false
+            })
         }
         .sheet(item: $reviewDraft) { draft in
             IntakeReviewView(
@@ -96,7 +105,7 @@ struct RootView: View {
             Button("Retry lookup") {
                 Task { await lookUp(failedScanRawValue) }
             }
-            Button("Enter manually") {
+            Button("Add photos or enter manually") {
                 reviewDraft = model.manualDraft(rawValue: failedScanRawValue)
             }
             Button("Cancel", role: .cancel) {}
