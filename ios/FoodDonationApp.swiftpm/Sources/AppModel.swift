@@ -9,6 +9,22 @@ enum DashboardLoadState {
     case failed(String)
 }
 
+enum DashboardSort: String, CaseIterable {
+    case received
+    case expiration
+    case category
+    case name
+
+    var title: String {
+        switch self {
+        case .received: "Received date (newest)"
+        case .expiration: "Closest printed date"
+        case .category: "Category (A–Z)"
+        case .name: "Product name (A–Z)"
+        }
+    }
+}
+
 struct IntakeDraft: Codable, Identifiable, Sendable {
     let id: UUID
     let scan: ParsedScan?
@@ -69,6 +85,7 @@ final class AppModel {
     var locationID: String { didSet { save(locationID, key: "locationID") } }
     var userID: String { didSet { save(userID, key: "userID") } }
     var userRole: UserRole { didSet { save(userRole.rawValue, key: "userRole") } }
+    var dashboardSort: DashboardSort = .received
 
     private(set) var dashboardState: DashboardLoadState = .idle
     private(set) var dashboardItems: [DonationDashboardItem] = []
@@ -77,6 +94,7 @@ final class AppModel {
     private(set) var reviewItems: [AdminReviewItem] = []
     private(set) var savedDrafts: [SavedIntakeDraft] = []
     private(set) var savedDraftsError: String?
+    private var dashboardRequestID = UUID()
     private let draftStore: LocalIntakeDraftStore
     private var adminDecisionAttempts: [UUID: AdminDecisionAttempt] = [:]
 
@@ -113,11 +131,17 @@ final class AppModel {
     }
 
     func loadDashboard() async {
+        let requestID = UUID()
+        dashboardRequestID = requestID
+        let sort = dashboardSort.rawValue
         dashboardState = .loading
         do {
-            dashboardItems = try await api().donationItems().items
+            let items = try await api().donationItems(sort: sort).items
+            guard dashboardRequestID == requestID else { return }
+            dashboardItems = items
             dashboardState = .loaded
         } catch {
+            guard dashboardRequestID == requestID else { return }
             dashboardState = .failed(error.localizedDescription)
         }
     }

@@ -223,7 +223,7 @@ public struct DonationDashboardItem: Codable, Identifiable, Sendable {
     public var id: UUID { intakeItemId }
 }
 
-public struct ProductSummary: Codable, Sendable { public let name: String; public let brand: String? }
+public struct ProductSummary: Codable, Sendable { public let name: String; public let brand: String?; public let category: String? }
 public struct QuantitySummary: Codable, Sendable { public let quantity: Double; public let unit: String }
 public struct DateSummary: Codable, Sendable { public let type: String; public let value: String?; public let daysRemaining: Int?; public let urgency: DateUrgency }
 public struct LocationSummary: Codable, Sendable { public let id: UUID; public let name: String }

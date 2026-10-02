@@ -46,7 +46,9 @@ export class IntakeController {
   }
 
   @Get("donation-items")
-  dashboard(@Actor() actor: RequestActor, @Query("search") search?: string, @Query("limit") limit?: string) { return this.dashboardService.list(actor, search, Number(limit || 50)); }
+  dashboard(@Actor() actor: RequestActor, @Query("search") search?: string, @Query("limit") limit?: string, @Query("sort") sort?: string) {
+    return this.dashboardService.list(actor, search, Number(limit || 50), sort);
+  }
 
   @Get("admin/review-queue")
   @Roles("admin")

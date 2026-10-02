@@ -83,9 +83,11 @@ public actor FoodDonationAPI {
         try await send("v1/admin/intake-items/\(itemID.uuidString)/decision", method: "POST", body: body, idempotencyKey: idempotencyKey)
     }
 
-    public func donationItems(search: String? = nil) async throws -> DonationDashboardResponse {
+    public func donationItems(search: String? = nil, sort: String = "received") async throws -> DonationDashboardResponse {
         var components = URLComponents(url: baseURL.appending(path: "v1/donation-items"), resolvingAgainstBaseURL: false)!
-        if let search, !search.isEmpty { components.queryItems = [URLQueryItem(name: "search", value: search)] }
+        var queryItems = [URLQueryItem(name: "sort", value: sort)]
+        if let search, !search.isEmpty { queryItems.append(URLQueryItem(name: "search", value: search)) }
+        components.queryItems = queryItems
         return try await sendURL(components.url!, method: "GET", bodyData: nil, idempotencyKey: nil)
     }
 

@@ -68,8 +68,34 @@ struct DashboardView: View {
                     .padding(.top, 40)
                 } else {
                     VStack(alignment: .leading, spacing: 14) {
-                        Text("Next to distribute")
-                            .font(.title2.bold())
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Donation records")
+                                    .font(.title2.bold())
+                                Text("Sorted by \(model.dashboardSort.title.lowercased())")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Menu {
+                                ForEach(DashboardSort.allCases, id: \.self) { sort in
+                                    Button {
+                                        model.dashboardSort = sort
+                                        Task { await model.loadDashboard() }
+                                    } label: {
+                                        if model.dashboardSort == sort {
+                                            Label(sort.title, systemImage: "checkmark")
+                                        } else {
+                                            Text(sort.title)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Sort", systemImage: "arrow.up.arrow.down")
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityLabel("Sort donations")
+                        }
                         ForEach(model.dashboardItems) { item in
                             NavigationLink {
                                 EvidenceDetailView(item: item, model: model)
@@ -122,21 +148,37 @@ private struct DonationRow: View {
     let item: DonationDashboardItem
 
     var body: some View {
-        HStack(spacing: 12) {
-            Circle().fill(urgencyColor).frame(width: 10, height: 10)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.product.name).font(.headline)
-                Text(detail).font(.subheadline).foregroundStyle(.secondary)
-                Text(statusLabel).font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(item.product.name)
+                    .font(.headline)
+                    .lineLimit(2)
+                Text("\(item.onHand.quantity.formatted()) \(item.onHand.unit)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
             }
-            Spacer()
-            Text(item.onHand.quantity.formatted())
-                .font(.headline.monospacedDigit())
-            Text(item.onHand.unit)
+            Text(detail)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if let warning {
+                HStack(spacing: 6) {
+                    Image(systemName: warning.icon)
+                        .foregroundStyle(warning.color)
+                    Text(warning.text)
+                        .foregroundStyle(.primary)
+                }
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(warning.color.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+            }
+            Text("\(categoryLabel) · \(statusLabel)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 9)
         .accessibilityElement(children: .combine)
     }
 
@@ -150,12 +192,18 @@ private struct DonationRow: View {
         item.intakeStatus.rawValue.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
-    private var urgencyColor: Color {
-        switch item.date.urgency {
-        case .expiredOrPast: .red
-        case .dueSoon: .orange
-        case .good: .green
-        case .noDate: .gray
-        }
+    private var categoryLabel: String {
+        (item.product.category ?? "Uncategorized")
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
+
+    private var warning: (text: String, icon: String, color: Color)? {
+        guard let days = item.date.daysRemaining else { return nil }
+        if days < 0 { return ("Past printed date — review before distribution", "exclamationmark.triangle.fill", .red) }
+        if days == 0 { return ("Printed date is today", "exclamationmark.triangle.fill", .red) }
+        if days <= 7 { return ("Printed date in \(days) days", "exclamationmark.triangle.fill", .red) }
+        if days <= 14 { return ("Printed date in \(days) days", "clock.fill", .yellow) }
+        return nil
     }
 }
