@@ -17,6 +17,7 @@ let package = Package(
             name: "Food Donation",
             targets: ["FoodDonationApp"],
             bundleIdentifier: "com.linminpei.fooddonation",
+            teamIdentifier: "XL98PPC38R",
             displayVersion: "0.1.0",
             bundleVersion: "1",
             appIcon: .asset("AppIcon"),

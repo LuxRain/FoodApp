@@ -124,19 +124,77 @@ private struct ScanStartView: View {
     let manualEntry: () -> Void
 
     var body: some View {
-        ContentUnavailableView {
-            Label(isLookingUp ? "Looking up product" : "Ready to scan", systemImage: isLookingUp ? "magnifyingglass" : "barcode.viewfinder")
-        } description: {
-            Text("Scan one packaged product. You will verify quantity, date, storage, and package condition before submission.")
-        } actions: {
-            VStack {
-                Button("Open scanner", action: scan)
-                    .buttonStyle(.borderedProminent)
-                Button("Enter item manually", action: manualEntry)
-                    .buttonStyle(.bordered)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 28) {
+                    Spacer(minLength: 24)
+
+                    VStack(spacing: 16) {
+                        Image(systemName: isLookingUp ? "magnifyingglass" : "barcode.viewfinder")
+                            .font(.system(size: 48, weight: .medium))
+                            .foregroundStyle(.green)
+                            .accessibilityHidden(true)
+                        Text(isLookingUp ? "Looking up product" : "Ready to scan")
+                            .font(.title.bold())
+                        Text("Scan one packaged product. You will verify quantity, date, storage, and package condition before submission.")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    VStack(spacing: 16) {
+                        Button(action: scan) {
+                            actionLabel("Open scanner", detail: "Use the iPhone camera", icon: "camera.viewfinder")
+                                .foregroundStyle(.white)
+                                .background(.green, in: RoundedRectangle(cornerRadius: 20))
+                        }
+                        .accessibilityHint("Scan a package barcode")
+
+                        Button(action: manualEntry) {
+                            actionLabel("Enter item manually", detail: "No barcode or scanner available", icon: "square.and.pencil")
+                                .foregroundStyle(.primary)
+                                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .strokeBorder(.green.opacity(0.5), lineWidth: 1)
+                                }
+                        }
+                        .accessibilityHint("Enter product details without scanning")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isLookingUp)
+
+                    if isLookingUp {
+                        ProgressView()
+                            .accessibilityLabel("Looking up product")
+                    }
+
+                    Spacer(minLength: 24)
+                }
+                .frame(maxWidth: 520)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: geometry.size.height)
+                .padding(.horizontal, 24)
             }
-            .disabled(isLookingUp)
         }
+    }
+
+    private func actionLabel(_ title: String, detail: String, icon: String) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: icon)
+                .font(.title2)
+                .frame(width: 32)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.headline)
+                Text(detail).font(.subheadline)
+                    .opacity(0.8)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, minHeight: 76)
+        .contentShape(RoundedRectangle(cornerRadius: 20))
     }
 }
 

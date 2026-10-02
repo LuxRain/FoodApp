@@ -68,6 +68,7 @@ private struct AdminReviewDetailView: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @State private var lastAttemptedDecision: String?
+    @FocusState private var reasonFocused: Bool
 
     var body: some View {
         Form {
@@ -116,48 +117,81 @@ private struct AdminReviewDetailView: View {
             Section("Decision") {
                 TextField("Reason for decision", text: $reason, axis: .vertical)
                     .lineLimit(2...4)
+                    .focused($reasonFocused)
+                    .disabled(isSubmitting || lastAttemptedDecision != nil)
                 Text("Check the package, date, storage conditions, and any photo before deciding. A reason is required and will be recorded.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button(item.status == .quarantined ? "Release to inventory" : "Accept into inventory") {
-                    pendingDecision = "accept"
+                    confirm("accept")
                 }
+                .disabled(decisionDisabled)
                 if item.status != .quarantined {
-                    Button("Quarantine") { pendingDecision = "quarantine" }
+                    Button("Quarantine") { confirm("quarantine") }
                         .tint(.orange)
+                        .disabled(decisionDisabled)
                 }
-                Button("Reject", role: .destructive) { pendingDecision = "reject" }
+                Button("Reject", role: .destructive) { confirm("reject") }
+                    .disabled(decisionDisabled)
             }
-            .disabled(isSubmitting || lastAttemptedDecision != nil || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
             if let errorMessage {
                 Section {
                     Text(errorMessage).foregroundStyle(.red)
-                    Button("Retry decision") { pendingDecision = retryDecision }
+                    Button("Retry decision") {
+                        if let retryDecision { confirm(retryDecision) }
+                    }
                         .disabled(retryDecision == nil)
                 }
             }
         }
         .navigationTitle("Review donation")
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Confirm \(pendingDecision.map(AdminReviewView.label) ?? "decision")?", isPresented: Binding(
+        .alert(confirmationTitle, isPresented: Binding(
             get: { pendingDecision != nil },
             set: { if !$0 { pendingDecision = nil } }
-        ), titleVisibility: .visible) {
+        )) {
             if let decision = pendingDecision {
-                Button(AdminReviewView.label(decision), role: decision == "reject" ? .destructive : nil) {
+                Button(confirmationAction, role: decision == "reject" ? .destructive : nil) {
                     Task { await submit(decision) }
                 }
             }
             Button("Cancel", role: .cancel) { pendingDecision = nil }
         } message: {
-            Text("\(item.productName): \(reason.trimmingCharacters(in: .whitespacesAndNewlines))")
+            Text("\(item.productName)\nReason: \(reason.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
     }
 
     private var retryDecision: String? {
         guard let errorMessage, !errorMessage.isEmpty else { return nil }
         return lastAttemptedDecision
+    }
+
+    private var decisionDisabled: Bool {
+        isSubmitting || lastAttemptedDecision != nil || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var confirmationTitle: String {
+        switch pendingDecision {
+        case "accept": item.status == .quarantined ? "Release into inventory?" : "Accept into inventory?"
+        case "quarantine": "Quarantine this item?"
+        case "reject": "Reject this item?"
+        default: "Confirm decision?"
+        }
+    }
+
+    private var confirmationAction: String {
+        switch pendingDecision {
+        case "accept": item.status == .quarantined ? "Release" : "Accept"
+        case "quarantine": "Quarantine"
+        case "reject": "Reject"
+        default: "Confirm"
+        }
+    }
+
+    private func confirm(_ decision: String) {
+        reasonFocused = false
+        pendingDecision = decision
     }
 
     private func submit(_ decision: String) async {
