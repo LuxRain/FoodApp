@@ -82,9 +82,14 @@ export class IntakeService {
 
   async reviewQueue(actor: RequestActor) {
     const result = await this.db.query(
-      `SELECT id, product_name AS "productName", brand, scanned_code AS "scannedCode", identity_source AS "identitySource", quantity::float8, quantity_unit AS "quantityUnit", date_type AS "dateType", date_value AS "dateValue",
-        storage_type AS "storageType", routing_reason_codes AS "routingReasonCodes", status, created_at AS "createdAt"
-       FROM intake_items WHERE organization_id = $1 AND status IN ('pending_admin_review', 'quarantined') ORDER BY created_at`, [actor.organizationId],
+      `SELECT i.id, i.product_name AS "productName", i.brand, i.scanned_code AS "scannedCode", i.identity_source AS "identitySource",
+        i.quantity::float8, i.quantity_unit AS "quantityUnit", i.date_type AS "dateType", i.date_value AS "dateValue",
+        i.date_label_raw AS "dateLabelRaw", i.storage_type AS "storageType", loc.name AS "storageLocationName",
+        i.package_condition AS "packageCondition", i.temperature_status AS "temperatureStatus",
+        i.calorie_status AS "calorieStatus", i.calories::float8, i.calorie_basis AS "calorieBasis",
+        i.allergen_summary AS allergens, i.routing_reason_codes AS "routingReasonCodes", i.status, i.created_at AS "createdAt"
+       FROM intake_items i JOIN locations loc ON loc.id = i.storage_location_id
+       WHERE i.organization_id = $1 AND i.status IN ('pending_admin_review', 'quarantined') ORDER BY i.created_at`, [actor.organizationId],
     );
     return { items: result.rows };
   }
@@ -112,6 +117,7 @@ export class IntakeService {
       await client.query("UPDATE intake_items SET status = $3::intake_status, decision_by = $4, decision_reason = $5, decided_at = now(), version = version + 1, updated_at = now() WHERE id = $1 AND organization_id = $2", [itemId, actor.organizationId, status, actor.userId, dto.reason]);
       let inventoryLotId: string | null = null;
       if (status === "admin_accepted" || status === "quarantined") inventoryLotId = await this.createInventory(client, actor, item, idempotencyKey, dto.reason, status === "quarantined");
+      if (status === "rejected" && item.status === "quarantined") await this.disposeInventory(client, actor, item, idempotencyKey, dto.reason);
       const response = { intakeItemId: itemId, status, inventoryLotId };
       await client.query("INSERT INTO audit_events (organization_id, actor_id, action, target_type, target_id, after_value) VALUES ($1, $2, $3, 'intake_item', $4, $5::jsonb)", [actor.organizationId, actor.userId, `admin_${dto.decision}`, itemId, JSON.stringify(response)]);
       await client.query("INSERT INTO sync_mutations (organization_id, client_mutation_id, result) VALUES ($1, $2, $3::jsonb)", [actor.organizationId, idempotencyKey, JSON.stringify(response)]);
@@ -126,9 +132,17 @@ export class IntakeService {
 
   private async createInventory(client: PoolClient, actor: RequestActor, item: ItemRow, key: string, reason: string, quarantined = false): Promise<string> {
     if (!item.product_id) throw new ConflictException("Accepted inventory requires a resolved product");
+    const existing = await client.query<{ id: string }>("SELECT id FROM inventory_lots WHERE intake_item_id = $1 AND organization_id = $2 FOR UPDATE", [item.id, actor.organizationId]);
+    if (existing.rowCount) {
+      await client.query(
+        "UPDATE inventory_lots SET status = $3::inventory_status, row_version = row_version + 1, updated_at = now() WHERE id = $1 AND organization_id = $2",
+        [existing.rows[0].id, actor.organizationId, quarantined ? "quarantined" : "available"],
+      );
+      return existing.rows[0].id;
+    }
     const lot = await client.query<{ id: string }>(
       `INSERT INTO inventory_lots (organization_id, intake_item_id, product_id, location_id, on_hand_quantity, unit, date_type, date_value, storage_type, status, nutrition_tier)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (intake_item_id) DO UPDATE SET updated_at = now() RETURNING id`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
       [actor.organizationId, item.id, item.product_id, item.storage_location_id, item.quantity, item.quantity_unit, item.date_type, item.date_value, item.storage_type, quarantined ? "quarantined" : "available", item.nutrition_tier],
     );
     await client.query(
@@ -137,5 +151,22 @@ export class IntakeService {
       [actor.organizationId, lot.rows[0].id, item.quantity, actor.userId, reason, `${key}:receive`],
     );
     return lot.rows[0].id;
+  }
+
+  private async disposeInventory(client: PoolClient, actor: RequestActor, item: ItemRow, key: string, reason: string): Promise<void> {
+    const lot = await client.query<{ id: string; on_hand_quantity: string }>(
+      "SELECT id, on_hand_quantity FROM inventory_lots WHERE intake_item_id = $1 AND organization_id = $2 FOR UPDATE",
+      [item.id, actor.organizationId],
+    );
+    if (!lot.rowCount) return;
+    await client.query(
+      "UPDATE inventory_lots SET status = 'disposed', on_hand_quantity = 0, row_version = row_version + 1, updated_at = now() WHERE id = $1 AND organization_id = $2",
+      [lot.rows[0].id, actor.organizationId],
+    );
+    await client.query(
+      `INSERT INTO inventory_movements (organization_id, lot_id, movement_type, quantity_delta, actor_id, reason, idempotency_key)
+       VALUES ($1, $2, 'DISPOSE', $3, $4, $5, $6) ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
+      [actor.organizationId, lot.rows[0].id, -Number(lot.rows[0].on_hand_quantity), actor.userId, reason, `${key}:dispose`],
+    );
   }
 }

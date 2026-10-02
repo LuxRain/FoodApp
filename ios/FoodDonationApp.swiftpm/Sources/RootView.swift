@@ -26,6 +26,14 @@ struct RootView: View {
             }
             .tabItem { Label("Scan", systemImage: "barcode.viewfinder") }
 
+            if model.userRole == .admin {
+                NavigationStack {
+                    AdminReviewView(model: model)
+                        .navigationTitle("Review queue")
+                }
+                .tabItem { Label("Review", systemImage: "checklist") }
+            }
+
             NavigationStack {
                 SettingsView(model: model)
                     .navigationTitle("Settings")
@@ -130,6 +138,14 @@ private struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("Development identity") {
+                Picker("Role", selection: $model.userRole) {
+                    Text("Volunteer").tag(UserRole.regularUser)
+                    Text("Admin").tag(UserRole.admin)
+                }
+                .onChange(of: model.userRole) { _, role in
+                    if role == .admin && model.userID == "regular-demo" { model.userID = "admin-demo" }
+                    if role == .regularUser && model.userID == "admin-demo" { model.userID = "regular-demo" }
+                }
                 TextField("User ID", text: $model.userID)
                     .textInputAutocapitalization(.never)
                 TextField("Organization ID", text: $model.organizationID)
@@ -138,6 +154,9 @@ private struct SettingsView: View {
                 TextField("Location ID", text: $model.locationID)
                     .textInputAutocapitalization(.never)
                     .font(.system(.caption, design: .monospaced))
+                Text("These identity settings are for local development only; they are not production sign-in.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section {
                 Button("Restore development defaults", action: model.resetDevelopmentSettings)

@@ -117,5 +117,48 @@ struct FoodDonationCoreChecks {
         precondition(result.inventoryLotId != nil)
         let dashboard = try await api.donationItems()
         precondition(dashboard.items.contains { $0.intakeItemId == item.id })
+
+        let manualItem = try await api.createItem(sessionID: session.id, body: .init(
+            productId: nil,
+            productName: "Swift Manual Product \(runID)",
+            brand: nil,
+            identitySource: "manual",
+            scannedCode: "unverified-code",
+            quantity: 1,
+            quantityUnit: "each",
+            dateType: "none",
+            dateValue: nil,
+            dateLabelRaw: nil,
+            storageType: "shelf_stable",
+            storageLocationId: locationID,
+            packageCondition: "acceptable",
+            temperatureStatus: "not_applicable",
+            calorieStatus: "not_labeled",
+            calories: nil,
+            calorieBasis: nil,
+            allergens: [],
+            requiredFieldConfidence: [0.3, 1, 0.5]
+        ))
+        let manualSubmission = try await api.submitItem(
+            itemID: manualItem.id,
+            body: .init(userReviewedAt: .now),
+            idempotencyKey: "swift-manual-submit-\(runID)"
+        )
+        precondition(manualSubmission.status == .pendingAdminReview)
+        let adminAPI = FoodDonationAPI(
+            baseURL: URL(string: baseURL)!,
+            auth: .init(userID: "admin-demo", organizationID: organizationID, role: .admin)
+        )
+        let reviewQueue = try await adminAPI.adminReviewQueue()
+        let reviewItem = reviewQueue.items.first { $0.id == manualItem.id }
+        precondition(reviewItem?.scannedCode == "unverified-code")
+        precondition(reviewItem?.packageCondition == "acceptable")
+        let decision = try await adminAPI.decideIntakeItem(
+            itemID: manualItem.id,
+            body: .init(decision: "accept", reason: "Verified in Swift integration check"),
+            idempotencyKey: "swift-manual-decision-\(runID)"
+        )
+        precondition(decision.status == .adminAccepted)
+        precondition(decision.inventoryLotId != nil)
     }
 }

@@ -102,6 +102,9 @@ if (manualSubmitted.status !== "pending_admin_review" || manualSubmitted.invento
 const reviewQueue = await request("/admin/review-queue", { headers: { "x-user-id": "admin-demo", "x-role": "admin" } });
 const queuedManualItem = reviewQueue.items.find((entry) => entry.id === manualItem.id);
 if (queuedManualItem?.scannedCode !== "not-a-valid-gtin") throw new Error("Manual item's scanned code was not preserved for review");
+if (queuedManualItem?.packageCondition !== "acceptable" || queuedManualItem?.storageLocationName == null || !Array.isArray(queuedManualItem?.allergens)) {
+  throw new Error("Review queue is missing safety fields needed for an admin decision");
+}
 const manualDecision = await request(`/admin/intake-items/${manualItem.id}/decision`, {
   method: "POST", headers: { "x-user-id": "admin-demo", "x-role": "admin", "idempotency-key": `e2e-manual-decision-${runID}` },
   body: JSON.stringify({ decision: "accept", reason: "Package details verified in end-to-end test" }),
@@ -112,4 +115,50 @@ if (!manualDashboard.items.some((entry) => entry.intakeItemId === manualItem.id 
   throw new Error("Accepted manual item is missing from inventory dashboard");
 }
 
-console.log(JSON.stringify({ productLookup: "passed", intakeItemId: item.id, inventoryLotId: submitted.inventoryLotId, evidence: "passed", idempotency: "passed", roleEnforcement: "passed", dashboard: "passed", manualReview: "passed" }, null, 2));
+async function createPendingManualItem(suffix) {
+  const created = await request(`/intake-sessions/${session.id}/items`, {
+    method: "POST",
+    body: JSON.stringify({
+      productName: `Manual ${suffix} ${runID}`, identitySource: "manual", quantity: 3, quantityUnit: "each",
+      dateType: "none", storageType: "shelf_stable", storageLocationId: locationID,
+      packageCondition: "acceptable", temperatureStatus: "not_applicable", calorieStatus: "not_labeled",
+      allergens: [], requiredFieldConfidence: [0.3, 1, 0.5],
+    }),
+  }, 201);
+  await request(`/intake-items/${created.id}/submit`, {
+    method: "POST", headers: { "idempotency-key": `e2e-${suffix}-submit-${runID}` },
+    body: JSON.stringify({ userReviewedAt: new Date().toISOString() }),
+  }, 201);
+  return created;
+}
+
+const releasedItem = await createPendingManualItem("release");
+const quarantined = await request(`/admin/intake-items/${releasedItem.id}/decision`, {
+  method: "POST", headers: { "x-user-id": "admin-demo", "x-role": "admin", "idempotency-key": `e2e-release-quarantine-${runID}` },
+  body: JSON.stringify({ decision: "quarantine", reason: "Hold for inspection" }),
+}, 201);
+if (quarantined.status !== "quarantined" || !quarantined.inventoryLotId) throw new Error("Quarantine did not create a held lot");
+const released = await request(`/admin/intake-items/${releasedItem.id}/decision`, {
+  method: "POST", headers: { "x-user-id": "admin-demo", "x-role": "admin", "idempotency-key": `e2e-release-accept-${runID}` },
+  body: JSON.stringify({ decision: "accept", reason: "Package verified" }),
+}, 201);
+if (released.inventoryLotId !== quarantined.inventoryLotId) throw new Error("Release created a duplicate inventory lot");
+const releaseDashboard = await request("/donation-items");
+if (releaseDashboard.items.find((entry) => entry.intakeItemId === releasedItem.id)?.inventoryState !== "available") {
+  throw new Error("Released lot remained quarantined");
+}
+
+const rejectedItem = await createPendingManualItem("reject");
+await request(`/admin/intake-items/${rejectedItem.id}/decision`, {
+  method: "POST", headers: { "x-user-id": "admin-demo", "x-role": "admin", "idempotency-key": `e2e-reject-quarantine-${runID}` },
+  body: JSON.stringify({ decision: "quarantine", reason: "Hold for inspection" }),
+}, 201);
+await request(`/admin/intake-items/${rejectedItem.id}/decision`, {
+  method: "POST", headers: { "x-user-id": "admin-demo", "x-role": "admin", "idempotency-key": `e2e-reject-final-${runID}` },
+  body: JSON.stringify({ decision: "reject", reason: "Damaged seal" }),
+}, 201);
+const rejectionDashboard = await request("/donation-items");
+const rejectedLot = rejectionDashboard.items.find((entry) => entry.intakeItemId === rejectedItem.id);
+if (rejectedLot?.inventoryState !== "disposed" || rejectedLot.onHand.quantity !== 0) throw new Error("Rejected quarantined lot was not disposed");
+
+console.log(JSON.stringify({ productLookup: "passed", intakeItemId: item.id, inventoryLotId: submitted.inventoryLotId, evidence: "passed", idempotency: "passed", roleEnforcement: "passed", dashboard: "passed", manualReview: "passed", quarantineTransitions: "passed" }, null, 2));

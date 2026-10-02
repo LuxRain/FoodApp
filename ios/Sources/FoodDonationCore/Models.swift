@@ -159,6 +159,50 @@ public struct SubmitItemResponse: Codable, Sendable {
     public let inventoryLotId: UUID?
 }
 
+public struct AdminReviewQueueResponse: Codable, Sendable {
+    public let items: [AdminReviewItem]
+}
+
+public struct AdminReviewItem: Codable, Identifiable, Sendable {
+    public let id: UUID
+    public let productName: String
+    public let brand: String?
+    public let scannedCode: String?
+    public let identitySource: String
+    public let quantity: Double
+    public let quantityUnit: String
+    public let dateType: String
+    public let dateValue: String?
+    public let dateLabelRaw: String?
+    public let storageType: String
+    public let storageLocationName: String
+    public let packageCondition: String
+    public let temperatureStatus: String
+    public let calorieStatus: String
+    public let calories: Double?
+    public let calorieBasis: String?
+    public let allergens: [AllergenDeclaration]
+    public let routingReasonCodes: [String]
+    public let status: IntakeStatus
+    public let createdAt: Date
+}
+
+public struct AdminDecisionRequest: Codable, Sendable {
+    public let decision: String
+    public let reason: String
+
+    public init(decision: String, reason: String) {
+        self.decision = decision
+        self.reason = reason
+    }
+}
+
+public struct AdminDecisionResponse: Codable, Sendable {
+    public let intakeItemId: UUID
+    public let status: IntakeStatus
+    public let inventoryLotId: UUID?
+}
+
 public struct DonationDashboardResponse: Codable, Sendable {
     public let items: [DonationDashboardItem]
     public let nextCursor: String?

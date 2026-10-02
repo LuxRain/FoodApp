@@ -36,3 +36,4 @@ Until managed OIDC is connected, requests use development-only actor headers:
 Mutating submit/decision requests also require `Idempotency-Key`.
 
 The server is authoritative for field-confidence routing, shelf-life policy, role enforcement, urgency, inventory creation, and idempotency.
+The admin review queue includes the fields needed to inspect an intake item before deciding. A quarantined lot remains unavailable; later acceptance releases the same lot, while rejection disposes it and records the outgoing movement.

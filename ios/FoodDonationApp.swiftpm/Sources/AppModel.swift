@@ -53,10 +53,17 @@ final class AppModel {
         let photoHash: String?
     }
 
+    private struct AdminDecisionAttempt {
+        let decision: String
+        let reason: String
+        let idempotencyKey: String
+    }
+
     private enum Defaults {
         static let organizationID = "00000000-0000-4000-8000-000000000001"
         static let locationID = "00000000-0000-4000-8000-000000000101"
         static let userID = "regular-demo"
+        static let userRole: UserRole = .regularUser
         #if targetEnvironment(simulator)
         static let apiURL = "http://127.0.0.1:3000"
         #else
@@ -68,17 +75,22 @@ final class AppModel {
     var organizationID: String { didSet { save(organizationID, key: "organizationID") } }
     var locationID: String { didSet { save(locationID, key: "locationID") } }
     var userID: String { didSet { save(userID, key: "userID") } }
+    var userRole: UserRole { didSet { save(userRole.rawValue, key: "userRole") } }
 
     private(set) var dashboardState: DashboardLoadState = .idle
     private(set) var dashboardItems: [DonationDashboardItem] = []
     private(set) var isLookingUp = false
+    private(set) var reviewQueueState: DashboardLoadState = .idle
+    private(set) var reviewItems: [AdminReviewItem] = []
     private var submissionAttempts: [UUID: SubmissionAttempt] = [:]
+    private var adminDecisionAttempts: [UUID: AdminDecisionAttempt] = [:]
 
     init(defaults: UserDefaults = .standard) {
         apiURL = defaults.string(forKey: "apiURL") ?? Defaults.apiURL
         organizationID = defaults.string(forKey: "organizationID") ?? Defaults.organizationID
         locationID = defaults.string(forKey: "locationID") ?? Defaults.locationID
         userID = defaults.string(forKey: "userID") ?? Defaults.userID
+        userRole = UserRole(rawValue: defaults.string(forKey: "userRole") ?? "") ?? Defaults.userRole
     }
 
     func loadDashboard() async {
@@ -192,11 +204,52 @@ final class AppModel {
         try await api().evidenceImage(itemID: itemID, evidenceID: evidenceID)
     }
 
+    func loadReviewQueue() async {
+        guard userRole == .admin else {
+            reviewItems = []
+            reviewQueueState = .idle
+            return
+        }
+        reviewQueueState = .loading
+        do {
+            reviewItems = try await api().adminReviewQueue().items
+            reviewQueueState = .loaded
+        } catch {
+            reviewQueueState = .failed(error.localizedDescription)
+        }
+    }
+
+    func decide(_ item: AdminReviewItem, decision: String, reason: String) async throws -> AdminDecisionResponse {
+        guard userRole == .admin else { throw AppValidationError("Switch to an admin identity in Settings.") }
+        let trimmedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedReason.isEmpty else { throw AppValidationError("Enter a reason for this decision.") }
+        let attempt: AdminDecisionAttempt
+        if let pending = adminDecisionAttempts[item.id] {
+            guard pending.decision == decision && pending.reason == trimmedReason else {
+                throw AppValidationError("Retry the previous decision before changing its action or reason.")
+            }
+            attempt = pending
+        } else {
+            attempt = AdminDecisionAttempt(decision: decision, reason: trimmedReason, idempotencyKey: "ios-admin-\(UUID().uuidString)")
+            adminDecisionAttempts[item.id] = attempt
+        }
+        let response = try await api().decideIntakeItem(
+            itemID: item.id,
+            body: .init(decision: attempt.decision, reason: attempt.reason),
+            idempotencyKey: attempt.idempotencyKey
+        )
+        adminDecisionAttempts[item.id] = nil
+        await loadReviewQueue()
+        await loadDashboard()
+        return response
+    }
+
     func resetDevelopmentSettings() {
         apiURL = Defaults.apiURL
         organizationID = Defaults.organizationID
         locationID = Defaults.locationID
         userID = Defaults.userID
+        userRole = Defaults.userRole
     }
 
     private func api() throws -> FoodDonationAPI {
@@ -205,7 +258,7 @@ final class AppModel {
         }
         return FoodDonationAPI(
             baseURL: url,
-            auth: .init(userID: userID, organizationID: organizationID, role: .regularUser)
+            auth: .init(userID: userID, organizationID: organizationID, role: userRole)
         )
     }
 

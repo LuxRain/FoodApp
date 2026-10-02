@@ -30,10 +30,13 @@ The native build-system flag works around a SwiftPM/XCBuild property-list failur
 - session, intake-item, and idempotent submission calls;
 - editable development connection settings for Simulator and physical-iPhone testing;
 - manual barcode entry when scanning is unavailable, including in the simulator.
+- an admin review queue with package evidence, safety fields, required decision reasons, and accept/quarantine/reject actions.
 
 The review form starts with **no printed date** rather than a guessed expiry. For a package with a date, take or choose a clear photo, compare the OCR result with the package, and tap **Confirm date matches package**. If OCR misses the date, use **Set printed date** and enter it manually. A submission without a printed date is routed for admin review. OCR runs on-device; the selected photo is converted to JPEG and uploaded privately before submission. Tap a donation on the dashboard to inspect its saved photo beside the confirmed date.
 
 To enter a product without a barcode, tap **Enter item manually** on the Scan tab. A valid but unmatched barcode opens the same form with the code retained. If lookup fails, choose Retry or Enter manually. Manual entry still requires the API for submission; it is not an offline save feature.
+
+To review an exception in the local pilot, choose **Admin** under Settings → Development identity. The demo user switches to `admin-demo`, and a Review tab appears. Open an item, inspect its details and photo, enter a reason, then accept, quarantine, or reject. Quarantined items can later be released or rejected. These development headers are not production authentication.
 
 Open `FoodDonationApp.swiftpm` in Xcode, choose an iPhone or simulator, and run the `Food Donation` scheme. The first physical-device run requires camera permission and ordinary Apple code signing.
 
