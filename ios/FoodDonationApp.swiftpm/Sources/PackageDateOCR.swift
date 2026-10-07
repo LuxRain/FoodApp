@@ -1,24 +1,39 @@
 import FoodDonationCore
 import Foundation
+import ImageIO
 import UIKit
 import Vision
 
 enum PackageDateOCR {
     @MainActor
     static func normalizedJPEG(from data: Data) throws -> Data {
-        guard let image = UIImage(data: data) else { throw AppValidationError("The selected photo could not be opened.") }
-        let longestEdge = max(image.size.width, image.size.height)
-        let ratio = min(1, 2048 / max(1, longestEdge))
-        let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            throw AppValidationError("The selected photo could not be opened. Choose a JPEG, PNG, HEIC, HEIF, WebP, AVIF, GIF, or TIFF image.")
+        }
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 3072,
+        ]
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+            throw AppValidationError("The selected photo could not be decoded.")
+        }
+        let image = UIImage(cgImage: thumbnail)
+        let size = CGSize(width: thumbnail.width, height: thumbnail.height)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
+        format.opaque = true
         let normalized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            UIColor.white.setFill()
+            UIRectFill(CGRect(origin: .zero, size: size))
             image.draw(in: CGRect(origin: .zero, size: size))
         }
-        guard let jpeg = normalized.jpegData(compressionQuality: 0.82), jpeg.count <= 10 * 1024 * 1024 else {
+        let jpeg = normalized.jpegData(compressionQuality: 0.88)
+        let compressed = jpeg.flatMap { $0.count <= 10 * 1024 * 1024 ? $0 : normalized.jpegData(compressionQuality: 0.72) }
+        guard let compressed, compressed.count <= 10 * 1024 * 1024 else {
             throw AppValidationError("The photo is too large to upload. Try a closer picture of the date label.")
         }
-        return jpeg
+        return compressed
     }
 
     static func recognize(jpegData: Data) async throws -> PrintedDateMatch? {

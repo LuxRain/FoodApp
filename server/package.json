@@ -8,6 +8,7 @@
     "start:dev": "node --env-file=.env --watch -r ts-node/register src/main.ts",
     "test": "tsx --test src/**/*.test.ts",
     "test:e2e": "node scripts/e2e.mjs",
+    "analyze:photos": "tsx scripts/analyze-photos.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -16,9 +17,11 @@
     "@nestjs/platform-express": "^11.1.6",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "heic-convert": "^2.1.0",
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",

@@ -24,7 +24,15 @@ Items entered without a catalog match retain any scanned code for admin review. 
 
 ## Package-photo evidence
 
-The API accepts a `photo` multipart field at `POST /v1/intake-items/:itemId/evidence` after the intake item is created and before submission. JPEG and PNG files up to 10 MB are supported, with a maximum of eight distinct photos per item. Set `evidenceType` to `date_label` or `package_photo` (`date_label` is the default for older clients); the optional `capturedAt` field is an ISO date. Uploading identical bytes again returns the existing asset, so retrying a saved draft does not duplicate photos. The response contains the evidence ID; `GET /v1/intake-items/:itemId/evidence` lists an item's assets, and `GET /v1/intake-items/:itemId/evidence/:evidenceId` returns the private image bytes.
+The API accepts a `photo` multipart field at `POST /v1/intake-items/:itemId/evidence` after the intake item is created and before submission. JPEG, PNG, HEIC/HEIF, WebP, AVIF, GIF, and TIFF files up to 10 MB are supported, with a maximum of eight distinct photos per item. The server checks the decoded format and MIME type, limits image dimensions, and converts non-JPEG/PNG uploads to orientation-corrected JPEG (the first frame of animated files). Set `evidenceType` to `date_label` or `package_photo` (`date_label` is the default for older clients); the optional `capturedAt` field is an ISO date. Uploading identical bytes again returns the existing asset, so retrying a saved draft does not duplicate photos. The response contains the evidence ID; `GET /v1/intake-items/:itemId/evidence` lists an item's assets, and `GET /v1/intake-items/:itemId/evidence/:evidenceId` returns the private image bytes.
+
+To test one or more package photos with the locally installed Gemma 4 model in Ollama, run:
+
+```bash
+npm run analyze:photos -- /absolute/path/front.HEIC /absolute/path/ingredients.png
+```
+
+The command accepts one to eight images in the formats above, converts them before sending them to Ollama at `http://127.0.0.1:11434`, and prints suggested fields. Set `OLLAMA_MODEL` or `OLLAMA_URL` to override the defaults. This is a local diagnostic tool; it does not save or approve an intake item. Always verify printed dates and allergens against the physical package.
 
 Files are stored under `server/var/evidence/` by default, outside the public web root, with metadata and a SHA-256 hash in PostgreSQL. Set `EVIDENCE_STORAGE_DIR` to an absolute directory for a persistent deployment. Back up that directory together with the database. This is local pilot storage; it does not yet provide object-store replication or malware scanning. The `malware_scan_state` value is recorded as `not_scanned` rather than implying a scan occurred.
 

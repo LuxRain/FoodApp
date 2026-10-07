@@ -4,6 +4,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import { DatabaseService } from "../database/database.service";
 import type { RequestActor } from "../auth/request-context";
+import { normalizePhoto } from "./photo-normalizer";
 
 type EvidenceRow = {
   id: string;
@@ -15,7 +16,6 @@ type EvidenceRow = {
   object_key: string;
 };
 
-const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 const MAX_PHOTOS_PER_ITEM = 8;
 
 @Injectable()
@@ -26,18 +26,13 @@ export class EvidenceService {
 
   async upload(actor: RequestActor, itemId: string, file: { buffer: Buffer; size: number; mimetype: string } | undefined, capturedAtRaw: string | undefined, evidenceTypeRaw?: string) {
     this.assertUUID(itemId);
-    if (!file?.buffer?.length || file.size > MAX_PHOTO_BYTES) throw new BadRequestException("Upload one photo up to 10 MB");
-    const extension = this.detectImage(file.buffer);
-    if (!extension) throw new BadRequestException("Only JPEG and PNG package photos are supported");
-    if ((extension === "jpg" && file.mimetype !== "image/jpeg") || (extension === "png" && file.mimetype !== "image/png")) {
-      throw new BadRequestException("Photo content type does not match the file");
-    }
+    const { buffer, extension } = await normalizePhoto(file);
     const capturedAt = capturedAtRaw ? new Date(capturedAtRaw) : new Date();
     if (Number.isNaN(capturedAt.getTime())) throw new BadRequestException("capturedAt must be a valid date");
     const evidenceType = evidenceTypeRaw ?? "date_label";
     if (!['date_label', 'package_photo'].includes(evidenceType)) throw new BadRequestException("Invalid evidence type");
 
-    const hash = createHash("sha256").update(file.buffer).digest("hex");
+    const hash = createHash("sha256").update(buffer).digest("hex");
     return this.db.transaction(async (client) => {
       const item = await client.query("SELECT id FROM intake_items WHERE id = $1 AND organization_id = $2 FOR UPDATE", [itemId, actor.organizationId]);
       if (!item.rowCount) throw new NotFoundException("Intake item not found");
@@ -52,7 +47,7 @@ export class EvidenceService {
       const objectKey = `${actor.organizationId}/${itemId}/${randomUUID()}.${extension}`;
       const filePath = this.filePath(objectKey);
       await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
-      await writeFile(filePath, file.buffer, { flag: "wx", mode: 0o600 });
+      await writeFile(filePath, buffer, { flag: "wx", mode: 0o600 });
       try {
         const result = await client.query<EvidenceRow>(
           `INSERT INTO evidence_assets (intake_item_id, object_key, content_hash, evidence_type, captured_at, malware_scan_state)
@@ -100,12 +95,6 @@ export class EvidenceService {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
       throw new BadRequestException("Invalid identifier");
     }
-  }
-
-  private detectImage(bytes: Buffer): "jpg" | "png" | null {
-    if (bytes.length >= 3 && bytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return "jpg";
-    if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "png";
-    return null;
   }
 
   private filePath(objectKey: string) {
