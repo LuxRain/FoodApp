@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
-import { FileInterceptor } from "@nestjs/platform-express";
+import { Body, Controller, Get, Headers, Param, Post, Query, Res, UploadedFile, UploadedFiles, UseGuards, UseInterceptors } from "@nestjs/common";
+import { FileInterceptor, FilesInterceptor } from "@nestjs/platform-express";
 import type { Response } from "express";
+import { PhotoAnalysisService } from "../analysis/photo-analysis.service";
 import { Actor, RequestActorGuard, Roles, type RequestActor } from "../auth/request-context";
 import { DashboardService } from "../dashboard/dashboard.service";
 import { EvidenceService } from "../evidence/evidence.service";
@@ -11,7 +12,11 @@ import { IntakeService } from "./intake.service";
 @Controller("v1")
 @UseGuards(RequestActorGuard)
 export class IntakeController {
-  constructor(private readonly intake: IntakeService, private readonly dashboardService: DashboardService, private readonly productLookup: ProductLookupService, private readonly evidence: EvidenceService) {}
+  constructor(private readonly intake: IntakeService, private readonly dashboardService: DashboardService, private readonly productLookup: ProductLookupService, private readonly evidence: EvidenceService, private readonly photoAnalysis: PhotoAnalysisService) {}
+
+  @Post("photo-analysis")
+  @UseInterceptors(FilesInterceptor("photos", 8, { limits: { fileSize: 10 * 1024 * 1024, files: 8 } }))
+  analyzePhotos(@UploadedFiles() files: { buffer: Buffer; size: number; mimetype: string }[]) { return this.photoAnalysis.analyze(files); }
 
   @Post("product-lookups")
   lookupProduct(@Actor() actor: RequestActor, @Body() body: ProductLookupDto) { return this.productLookup.lookup(actor, body.rawCode, body.scheme); }

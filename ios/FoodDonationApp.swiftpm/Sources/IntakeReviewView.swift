@@ -11,6 +11,8 @@ struct IntakeReviewView: View {
     @State private var isLocked: Bool
     @State private var isReadingPhoto = false
     @State private var isAddingPhotos = false
+    @State private var isAnalyzing = false
+    @State private var analysis: PhotoAnalysisResponse?
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var selectedPackagePhotos: [PhotosPickerItem] = []
     @State private var showingCamera = false
@@ -19,14 +21,18 @@ struct IntakeReviewView: View {
     @State private var errorMessage: String?
     let submit: (IntakeDraft) async throws -> Void
     let save: (IntakeDraft) async throws -> Void
+    let analyze: ([Data]) async throws -> PhotoAnalysisResponse
     let isLockedAfterFailure: (UUID) -> Bool
 
     init(draft: IntakeDraft, initiallyLocked: Bool, submit: @escaping (IntakeDraft) async throws -> Void,
-         save: @escaping (IntakeDraft) async throws -> Void, isLockedAfterFailure: @escaping (UUID) -> Bool) {
+         save: @escaping (IntakeDraft) async throws -> Void,
+         analyze: @escaping ([Data]) async throws -> PhotoAnalysisResponse,
+         isLockedAfterFailure: @escaping (UUID) -> Bool) {
         _draft = State(initialValue: draft)
         _isLocked = State(initialValue: initiallyLocked)
         self.submit = submit
         self.save = save
+        self.analyze = analyze
         self.isLockedAfterFailure = isLockedAfterFailure
     }
 
@@ -54,7 +60,7 @@ struct IntakeReviewView: View {
                         LabeledContent("Scanned code", value: code)
                             .font(.system(.body, design: .monospaced))
                     }
-                    LabeledContent("Source", value: sourceLabel)
+                    LabeledContent("Source", value: draft.usedPhotoSuggestions == true ? "Photo analysis · verify" : sourceLabel)
                     if let candidate = draft.candidate {
                         LabeledContent("Confidence", value: candidate.confidence.formatted(.percent.precision(.fractionLength(0))))
                     } else {
@@ -66,67 +72,111 @@ struct IntakeReviewView: View {
 
                 if draft.candidate == nil {
                     Section("Package photos (\(photoCount)/8)") {
-                        Text("Take photos of the front, ingredients, nutrition facts, barcode, and other useful sides. Enter the product name yourself before submitting; photos help an admin review it but are not yet read automatically. The date-label photo counts toward the eight-photo limit.")
+                        Text("No barcode match? Photograph one package: front, ingredients, allergens, weight, and printed date. Gemma 4 can suggest details, which you must verify. The date-label photo counts toward the eight-photo limit.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        if !(draft.referencePhotos ?? []).isEmpty {
+                        if !previewPhotos.isEmpty {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                                ForEach(draft.referencePhotos ?? []) { photo in
+                                ForEach(previewPhotos) { photo in
                                     if let data = photo.jpegData, let image = UIImage(data: data) {
-                                        ZStack(alignment: .topTrailing) {
-                                            Button {
-                                                previewPhoto = photo
-                                            } label: {
-                                                Image(uiImage: image)
-                                                    .resizable()
-                                                    .scaledToFill()
-                                                    .frame(height: 96)
-                                                    .frame(maxWidth: .infinity)
-                                                    .clipped()
-                                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        VStack(spacing: 4) {
+                                            ZStack(alignment: .topTrailing) {
+                                                Button {
+                                                    previewPhoto = photo
+                                                } label: {
+                                                    Image(uiImage: image)
+                                                        .resizable()
+                                                        .scaledToFill()
+                                                        .frame(height: 96)
+                                                        .frame(maxWidth: .infinity)
+                                                        .clipped()
+                                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                                }
+                                                .buttonStyle(.borderless)
+                                                .accessibilityLabel("Preview package photo")
+                                                Button {
+                                                    if photo.id == draft.id {
+                                                        removeDatePhoto()
+                                                    } else {
+                                                        draft.referencePhotos?.removeAll { $0.id == photo.id }
+                                                        invalidateAnalysis()
+                                                    }
+                                                } label: {
+                                                    Image(systemName: "xmark.circle.fill")
+                                                        .font(.title2)
+                                                        .foregroundStyle(.white)
+                                                        .shadow(color: .black.opacity(0.8), radius: 2)
+                                                        .frame(width: 44, height: 44)
+                                                }
+                                                .buttonStyle(.borderless)
+                                                .accessibilityLabel("Remove package photo")
+                                                .disabled(isAddingPhotos || isReadingPhoto || isAnalyzing || isSubmitting)
                                             }
-                                            .buttonStyle(.plain)
-                                            .accessibilityLabel("Preview package photo")
-                                            Button {
-                                                draft.referencePhotos?.removeAll { $0.id == photo.id }
-                                            } label: {
-                                                Image(systemName: "xmark.circle.fill")
-                                                    .font(.title2)
-                                                    .foregroundStyle(.white)
-                                                    .shadow(color: .black.opacity(0.8), radius: 2)
-                                                    .frame(width: 44, height: 44)
+                                            if photo.id == draft.id {
+                                                Label("Date label", systemImage: "calendar.badge.checkmark")
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundStyle(.green)
+                                                    .frame(minHeight: 44)
+                                            } else {
+                                                Button {
+                                                    Task { await selectDatePhoto(photo) }
+                                                } label: {
+                                                    Label("Read date", systemImage: "calendar")
+                                                        .font(.caption.weight(.semibold))
+                                                        .frame(maxWidth: .infinity, minHeight: 44)
+                                                }
+                                                .buttonStyle(.borderless)
+                                                .disabled(isAddingPhotos || isReadingPhoto || isAnalyzing || isSubmitting)
                                             }
-                                            .buttonStyle(.plain)
-                                            .accessibilityLabel("Remove package photo")
-                                            .disabled(isAddingPhotos || isSubmitting)
                                         }
                                     }
                                 }
                             }
                         }
-                        HStack(spacing: 0) {
+                        HStack(spacing: 12) {
                             if UIImagePickerController.isSourceTypeAvailable(.camera) {
                                 Button { showingPackageCamera = true } label: {
-                                    HStack(spacing: 5) {
-                                        Image(systemName: "camera")
-                                        Text("Take photo")
-                                    }
-                                    .font(.subheadline.weight(.semibold))
-                                    .frame(minHeight: 44)
+                                    Label("Take photo", systemImage: "camera")
+                                        .frame(maxWidth: .infinity, minHeight: 48)
+                                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
                                 }
-                                Spacer(minLength: 24)
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Take package photo with camera")
                             }
                             PhotosPicker(selection: $selectedPackagePhotos, maxSelectionCount: max(1, 8 - photoCount), matching: .images) {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "photo.on.rectangle")
-                                    Text("Choose photos")
-                                }
-                                .font(.subheadline.weight(.semibold))
-                                .frame(minHeight: 44)
+                                Label("Photo library", systemImage: "photo.on.rectangle")
+                                    .frame(maxWidth: .infinity, minHeight: 48)
+                                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
                             }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Choose package photos from library")
                         }
-                        .disabled(photoCount >= 8 || isAddingPhotos || isReadingPhoto || isSubmitting)
+                        .font(.subheadline.weight(.semibold))
+                        .disabled(photoCount >= 8 || isAddingPhotos || isReadingPhoto || isAnalyzing || isSubmitting)
                         if isAddingPhotos { ProgressView("Adding photos…") }
+                        Button {
+                            Task { await analyzePackagePhotos() }
+                        } label: {
+                            Label("Analyze photos with AI", systemImage: "sparkles")
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(photoCount == 0 || isAddingPhotos || isReadingPhoto || isAnalyzing || isSubmitting)
+                        if isAnalyzing { ProgressView("Reading package photos… This may take a minute.") }
+                        if let analysis {
+                            Text("AI suggestions — compare with the physical package before using. Missing means not visible, not absent.")
+                                .font(.caption).foregroundStyle(.orange)
+                            if let value = analysis.productName { LabeledContent("Product", value: value) }
+                            if let value = analysis.brand { LabeledContent("Brand", value: value) }
+                            if let value = analysis.ingredients { LabeledContent("Ingredients", value: value) }
+                            if let value = analysis.allergens { LabeledContent("Allergen text", value: value) }
+                            if let value = analysis.packageWeight { LabeledContent("Weight", value: value) }
+                            if let value = analysis.printedDate { LabeledContent("Printed date text", value: value) }
+                            Button("Apply product and brand suggestions") { applyPhotoSuggestions(analysis) }
+                                .disabled(analysis.productName == nil && analysis.brand == nil)
+                            Text("Ingredients, allergen text, weight, and date are shown for verification only; this pilot does not save those AI suggestions as confirmed inventory fields.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -142,47 +192,65 @@ struct IntakeReviewView: View {
                 }
 
                 Section("Package date") {
-                    if let data = draft.packagePhotoData, let image = UIImage(data: data) {
-                        ZStack(alignment: .topTrailing) {
-                            Button {
-                                previewPhoto = IntakePhoto(id: draft.id, jpegData: data,
-                                                          capturedAt: draft.packagePhotoCapturedAt ?? .now)
-                            } label: {
-                                Image(uiImage: image)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(maxHeight: 180)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Preview date-label photo")
-                            Button {
-                                removeDatePhoto()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.title2)
-                                    .foregroundStyle(.white)
-                                    .shadow(color: .black.opacity(0.8), radius: 2)
-                                    .frame(width: 44, height: 44)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Remove date-label photo")
-                            .disabled(isReadingPhoto || isSubmitting)
+                    if draft.candidate == nil {
+                        if draft.packagePhotoData != nil {
+                            Label("Date-label photo selected above", systemImage: "calendar.badge.checkmark")
+                            Button("Clear date selection") { clearDateSelection() }
+                                .buttonStyle(.borderless)
+                                .disabled(isReadingPhoto || isAddingPhotos || isAnalyzing || isSubmitting)
+                        } else {
+                            Text("Tap Read date below a package photo above, or enter the printed date manually.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                    }
-                    HStack {
+                    } else {
+                        if let data = draft.packagePhotoData, let image = UIImage(data: data) {
+                            ZStack(alignment: .topTrailing) {
+                                Button {
+                                    previewPhoto = IntakePhoto(id: draft.id, jpegData: data,
+                                                              capturedAt: draft.packagePhotoCapturedAt ?? .now)
+                                } label: {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(maxHeight: 180)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Preview date-label photo")
+                                Button {
+                                    removeDatePhoto()
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.white)
+                                        .shadow(color: .black.opacity(0.8), radius: 2)
+                                        .frame(width: 44, height: 44)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Remove date-label photo")
+                                .disabled(isReadingPhoto || isAnalyzing || isSubmitting)
+                            }
+                        }
                         if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                            Button("Take photo", systemImage: "camera") { showingCamera = true }
+                            Button("Take date photo", systemImage: "camera") { showingCamera = true }
+                                .buttonStyle(.borderless)
+                                .frame(minHeight: 44)
+                                .disabled(isReadingPhoto || isAddingPhotos || isAnalyzing || isSubmitting || (draft.packagePhotoData == nil && photoCount >= 8))
                         }
                         PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                            Label("Choose photo", systemImage: "photo")
+                            Label("Choose date photo from library", systemImage: "photo")
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         }
+                        .buttonStyle(.borderless)
+                        .disabled(isReadingPhoto || isAddingPhotos || isAnalyzing || isSubmitting || (draft.packagePhotoData == nil && photoCount >= 8))
                     }
-                    .disabled(isReadingPhoto || isAddingPhotos || isSubmitting || (draft.packagePhotoData == nil && photoCount >= 8))
 
                     if isReadingPhoto {
                         ProgressView("Reading printed date…")
                     }
-                    Text("Aim at the printed date. Check the on-device OCR result against the package. The photo is saved with this intake when you submit.")
+                    Text(draft.candidate == nil
+                         ? "OCR reads the selected package photo. Compare the result with the package and any Gemma suggestion; confirm the actual date yourself."
+                         : "Aim at the printed date. Check the on-device OCR result against the package and confirm the actual date yourself.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -305,14 +373,14 @@ struct IntakeReviewView: View {
                     Button(isSubmitting ? "Submitting" : isLocked ? "Retry" : "Submit") {
                         Task { await submitDraft() }
                     }
-                    .disabled(isSubmitting || isSaving || isReadingPhoto || isAddingPhotos || (draft.hasPrintedDate && !draft.dateConfirmed))
+                    .disabled(isSubmitting || isSaving || isReadingPhoto || isAddingPhotos || isAnalyzing || (draft.hasPrintedDate && !draft.dateConfirmed))
                 }
                 ToolbarItem(placement: .bottomBar) {
                     if !isLocked {
                         Button(isSaving ? "Saving" : "Save on this iPhone", systemImage: "tray.and.arrow.down") {
                             Task { await saveDraft() }
                         }
-                        .disabled(isSaving || isSubmitting || isReadingPhoto || isAddingPhotos)
+                        .disabled(isSaving || isSubmitting || isReadingPhoto || isAddingPhotos || isAnalyzing)
                     }
                 }
             }
@@ -384,6 +452,52 @@ struct IntakeReviewView: View {
         return photos
     }
 
+    private func analyzePackagePhotos() async {
+        let photos = (draft.referencePhotos ?? []).compactMap(\.jpegData) + [draft.packagePhotoData].compactMap { $0 }
+        guard photos.count == photoCount else {
+            errorMessage = "A package photo is missing. Add it again before analysis."
+            return
+        }
+        isAnalyzing = true
+        errorMessage = nil
+        defer { isAnalyzing = false }
+        do {
+            let result = try await analyze(photos)
+            analysis = result
+            if draft.productName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let name = result.productName {
+                draft.productName = name
+                draft.usedPhotoSuggestions = true
+            }
+            if draft.brand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let brand = result.brand {
+                draft.brand = brand
+                draft.usedPhotoSuggestions = true
+            }
+            if analysis?.productName == nil {
+                errorMessage = "The model could not identify the product. Add a clear front-label photo or enter its name yourself."
+            }
+        } catch {
+            errorMessage = "Photo analysis failed: \(error.localizedDescription). You can retry or enter details manually."
+        }
+    }
+
+    private func applyPhotoSuggestions(_ result: PhotoAnalysisResponse) {
+        if let name = result.productName { draft.productName = name }
+        if let brand = result.brand { draft.brand = brand }
+        draft.usedPhotoSuggestions = true
+        errorMessage = nil
+    }
+
+    private func invalidateAnalysis() {
+        if let analysis, draft.usedPhotoSuggestions == true {
+            if draft.productName == analysis.productName { draft.productName = "" }
+            if draft.brand == analysis.brand { draft.brand = "" }
+            draft.usedPhotoSuggestions = nil
+        }
+        analysis = nil
+    }
+
     private func addPackagePhoto(_ data: Data) {
         guard photoCount < 8 else {
             errorMessage = "The eight-photo limit has been reached. Remove a photo to add another."
@@ -394,6 +508,7 @@ struct IntakeReviewView: View {
             var photos = draft.referencePhotos ?? []
             photos.append(IntakePhoto(id: UUID(), jpegData: jpeg, capturedAt: .now))
             draft.referencePhotos = photos
+            invalidateAnalysis()
             errorMessage = nil
         } catch {
             errorMessage = "Could not add photo: \(error.localizedDescription)"
@@ -401,8 +516,25 @@ struct IntakeReviewView: View {
     }
 
     private func removeDatePhoto() {
+        invalidateAnalysis()
         draft.packagePhotoData = nil
         draft.packagePhotoCapturedAt = nil
+        clearPhotoDateFields()
+    }
+
+    private func clearDateSelection() {
+        if let data = draft.packagePhotoData {
+            var photos = draft.referencePhotos ?? []
+            photos.append(IntakePhoto(id: UUID(), jpegData: data,
+                                      capturedAt: draft.packagePhotoCapturedAt ?? .now))
+            draft.referencePhotos = photos
+        }
+        draft.packagePhotoData = nil
+        draft.packagePhotoCapturedAt = nil
+        clearPhotoDateFields()
+    }
+
+    private func clearPhotoDateFields() {
         if draft.dateSource == "Package photo" || draft.dateSource == "Photo, corrected" {
             draft.hasPrintedDate = false
             draft.dateValue = nil
@@ -410,6 +542,31 @@ struct IntakeReviewView: View {
             draft.dateSource = "Not captured"
             draft.dateConfidence = nil
             draft.dateConfirmed = false
+        }
+    }
+
+    private func selectDatePhoto(_ photo: IntakePhoto) async {
+        guard let jpeg = photo.jpegData,
+              var photos = draft.referencePhotos,
+              let index = photos.firstIndex(where: { $0.id == photo.id }) else {
+            errorMessage = "This package photo is unavailable. Add it again before reading the date."
+            return
+        }
+        isReadingPhoto = true
+        errorMessage = nil
+        defer { isReadingPhoto = false }
+        photos.remove(at: index)
+        if let oldDatePhoto = draft.packagePhotoData {
+            photos.append(IntakePhoto(id: UUID(), jpegData: oldDatePhoto,
+                                      capturedAt: draft.packagePhotoCapturedAt ?? .now))
+        }
+        draft.referencePhotos = photos
+        draft.packagePhotoData = jpeg
+        draft.packagePhotoCapturedAt = photo.capturedAt
+        do {
+            try await recognizeDate(jpeg)
+        } catch {
+            errorMessage = "Could not read the selected photo: \(error.localizedDescription)"
         }
     }
 
@@ -448,25 +605,32 @@ struct IntakeReviewView: View {
         defer { isReadingPhoto = false }
         do {
             let jpeg = try PackageDateOCR.normalizedJPEG(from: data)
+            invalidateAnalysis()
             draft.packagePhotoData = jpeg
             draft.packagePhotoCapturedAt = .now
-            guard let match = try await PackageDateOCR.recognize(jpegData: jpeg) else {
-                draft.hasPrintedDate = false
-                draft.dateValue = nil
-                draft.dateConfirmed = false
-                errorMessage = "No complete date was recognized. Retake the label photo or enter the date manually."
-                return
-            }
-            draft.hasPrintedDate = true
-            draft.dateValue = match.date
-            draft.dateType = match.dateType
-            draft.dateLabelRaw = match.rawText
-            draft.dateSource = "Package photo"
-            draft.dateConfidence = match.confidence
-            draft.dateConfirmed = false
+            try await recognizeDate(jpeg)
         } catch {
             errorMessage = "Could not read the photo: \(error.localizedDescription)"
         }
+    }
+
+    private func recognizeDate(_ jpeg: Data) async throws {
+        draft.hasPrintedDate = false
+        draft.dateValue = nil
+        draft.dateLabelRaw = ""
+        draft.dateSource = "Not captured"
+        draft.dateConfidence = nil
+        draft.dateConfirmed = false
+        guard let match = try await PackageDateOCR.recognize(jpegData: jpeg) else {
+            errorMessage = "No complete date was recognized. Select another photo or enter the date manually."
+            return
+        }
+        draft.hasPrintedDate = true
+        draft.dateValue = match.date
+        draft.dateType = match.dateType
+        draft.dateLabelRaw = match.rawText
+        draft.dateSource = "Package photo"
+        draft.dateConfidence = match.confidence
     }
 }
 

@@ -40,6 +40,24 @@ public actor FoodDonationAPI {
         try await send("v1/product-lookups", method: "POST", body: body)
     }
 
+    public func analyzePhotos(_ photos: [Data]) async throws -> PhotoAnalysisResponse {
+        let boundary = "FoodDonation-\(UUID().uuidString)"
+        var body = Data()
+        for (index, photo) in photos.enumerated() {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"photos\"; filename=\"package-\(index + 1).jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
+            body.append(photo)
+            body.append(Data("\r\n".utf8))
+        }
+        body.append(Data("--\(boundary)--\r\n".utf8))
+        var request = URLRequest(url: baseURL.appending(path: "v1/photo-analysis"))
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.timeoutInterval = 210
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        authenticate(&request)
+        return try decoder.decode(PhotoAnalysisResponse.self, from: try await validatedData(for: request))
+    }
+
     public func createItem(sessionID: UUID, body: CreateItemRequest, idempotencyKey: String) async throws -> IntakeItemResponse {
         try await send("v1/intake-sessions/\(sessionID.uuidString)/items", method: "POST", body: body, idempotencyKey: idempotencyKey)
     }

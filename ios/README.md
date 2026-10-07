@@ -24,6 +24,7 @@ The native build-system flag works around a SwiftPM/XCBuild property-list failur
 - normalization through `FoodDonationCore.ScanParser`;
 - product lookup followed by a prefilled verification form;
 - manual product entry when no catalog match is found or lookup fails; unmatched items wait for admin review;
+- barcode-first product lookup, with Gemma 4/Ollama photo analysis when the barcode is missing, unreadable, or has no catalog match;
 - camera or photo-library capture of a package date and on-device Apple Vision text recognition;
 - extracted date text, source, and confidence in the verification form, with explicit confirmation before submission;
 - private upload of the selected package photo before item submission, with the photo visible from donation details;
@@ -35,7 +36,9 @@ The native build-system flag works around a SwiftPM/XCBuild property-list failur
 
 The review form starts with **no printed date** rather than a guessed expiry. For a package with a date, take or choose a clear photo, compare the OCR result with the package, and tap **Confirm date matches package**. If OCR misses the date, use **Set printed date** and enter it manually. A submission without a printed date is routed for admin review. OCR runs on-device; common photo-library formats including iPhone HEIC/HEIF, JPEG, and PNG are decoded with Image I/O, oriented and resized, then converted to JPEG for the API and saved drafts. Tap a donation on the dashboard to inspect its saved photo beside the confirmed date.
 
-To enter a product without a barcode, tap **Enter item manually** on the Scan tab. A valid but unmatched barcode opens the same form with the code retained. If lookup fails, choose Retry or Enter manually. Submission still requires the API, but you can save the form locally and retry later.
+For the fallback path, choose **No readable barcode** on the Scan tab or **Barcode unreadable? Add photos** in the scanner. A barcode that has no catalog match also opens the photo-enabled form. Add up to eight photos of one package using **Take photo** or **Photo library**, then tap **Analyze photos with AI**. When product or brand is blank, the model fills those fields as editable suggestions; compare them with the physical package. Tap **Read date** below one of the same photos to designate it as the date label and run on-device OCR; this does not consume another photo slot. Clearing that designation returns the photo to the package-photo collection. The date still needs explicit confirmation. Ingredient, allergen, weight, and printed-date suggestions are visible for verification but are not yet stored as confirmed structured fields. Run Ollama with `hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0` on the API Mac; the phone talks only to the API URL in Settings.
+
+To enter a product without a barcode, choose **No readable barcode** and type its details instead of running photo analysis. A valid but unmatched barcode opens the same form with the code retained. If lookup fails, choose Retry or **Use photos or enter manually**. Submission still requires the API, but you can save the form locally and retry later.
 
 To review an exception in the local pilot, choose **Admin** under Settings → Development identity. The demo user switches to `admin-demo`, and a Review tab appears. Open an item, inspect its details and photo, enter a reason, then accept, quarantine, or reject. Quarantined items can later be released or rejected. These development headers are not production authentication.
 

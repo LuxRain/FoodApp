@@ -46,6 +46,15 @@ public struct ProductLookupResponse: Codable, Sendable {
     public let candidates: [ProductCandidate]
 }
 
+public struct PhotoAnalysisResponse: Decodable, Sendable {
+    public let productName: String?
+    public let brand: String?
+    public let ingredients: String?
+    public let allergens: String?
+    public let packageWeight: String?
+    public let printedDate: String?
+}
+
 public struct ProductCandidate: Codable, Identifiable, Sendable {
     public let productId: UUID?
     public let normalizedCode: String

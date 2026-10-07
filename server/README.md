@@ -34,6 +34,8 @@ npm run analyze:photos -- /absolute/path/front.HEIC /absolute/path/ingredients.p
 
 The command accepts one to eight images in the formats above, converts them before sending them to Ollama at `http://127.0.0.1:11434`, and prints suggested fields. Set `OLLAMA_MODEL` or `OLLAMA_URL` to override the defaults. This is a local diagnostic tool; it does not save or approve an intake item. Always verify printed dates and allergens against the physical package.
 
+The iPhone app can also send one to eight JPEG package photos to `POST /v1/photo-analysis` (multipart field `photos`). The API calls the same local Ollama model and returns nullable suggestions for product name, brand, ingredients, allergens, weight, and printed-date text. Analysis does not create an intake item or write photos to the database. The volunteer must explicitly apply the product/brand suggestion and confirm the printed date; photo-identified items go to admin review rather than automatic acceptance. Start Ollama on the **API Mac** before using this feature. No Ollama port needs to be exposed to the iPhone.
+
 Files are stored under `server/var/evidence/` by default, outside the public web root, with metadata and a SHA-256 hash in PostgreSQL. Set `EVIDENCE_STORAGE_DIR` to an absolute directory for a persistent deployment. Back up that directory together with the database. This is local pilot storage; it does not yet provide object-store replication or malware scanning. The `malware_scan_state` value is recorded as `not_scanned` rather than implying a scan occurred.
 
 Until managed OIDC is connected, requests use development-only actor headers:

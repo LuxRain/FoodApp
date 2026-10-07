@@ -51,6 +51,8 @@ struct IntakeDraft: Codable, Identifiable, Sendable {
     var packagePhotoCapturedAt: Date?
     // Optional so drafts saved by earlier app versions remain decodable.
     var referencePhotos: [IntakePhoto]?
+    // Optional for drafts saved by earlier app versions.
+    var usedPhotoSuggestions: Bool?
     var storageType = "shelf_stable"
     var packageCondition = "acceptable"
     var temperatureStatus = "not_applicable"
@@ -177,6 +179,11 @@ final class AppModel {
         return IntakeDraft(scan: scan)
     }
 
+    func analyzePhotos(_ photos: [Data]) async throws -> PhotoAnalysisResponse {
+        guard !photos.isEmpty && photos.count <= 8 else { throw AppValidationError("Add one to eight package photos first.") }
+        return try await api().analyzePhotos(photos)
+    }
+
     func submit(_ draft: IntakeDraft) async throws -> SubmitItemResponse {
         var record = savedDrafts.first { $0.id == draft.id } ?? newSavedDraft(draft)
         try verifyIdentity(for: record)
@@ -276,7 +283,7 @@ final class AppModel {
             productName: draft.productName,
             brand: draft.brand.nilIfBlank,
             category: FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue,
-            identitySource: draft.scan?.normalizedGTIN == nil ? "manual" : identitySource(for: draft.scan?.scheme ?? .unknown),
+            identitySource: draft.usedPhotoSuggestions == true ? "image" : draft.scan?.normalizedGTIN == nil ? "manual" : identitySource(for: draft.scan?.scheme ?? .unknown),
             scannedCode: draft.scan?.raw.nilIfBlank,
             quantity: Decimal(draft.quantity),
             quantityUnit: draft.quantityUnit,
@@ -291,7 +298,7 @@ final class AppModel {
             calories: draft.calories.map { Decimal($0) },
             calorieBasis: draft.calorieBasis,
             allergens: acceptedAllergens(from: draft.candidate?.allergens ?? []),
-            requiredFieldConfidence: [draft.candidate?.confidence ?? 0.3, 1, draft.hasPrintedDate ? 1 : 0.5]
+            requiredFieldConfidence: [draft.usedPhotoSuggestions == true ? 0.6 : draft.candidate?.confidence ?? 0.3, 1, draft.hasPrintedDate ? 1 : 0.5]
         )
     }
 

@@ -28,7 +28,7 @@ struct RootView: View {
             NavigationStack {
                 ScanStartView(isLookingUp: model.isLookingUp,
                               scan: { showingScanner = true },
-                              manualEntry: { reviewDraft = model.manualDraft() })
+                              photoFallback: { reviewDraft = model.manualDraft() })
                 .navigationTitle("New intake")
             }
             .tabItem { Label("Scan", systemImage: "barcode.viewfinder") }
@@ -90,6 +90,7 @@ struct RootView: View {
                     alertMessage = receiptMessage(for: result)
                 },
                 save: { updatedDraft in try await model.saveDraft(updatedDraft) },
+                analyze: { photos in try await model.analyzePhotos(photos) },
                 isLockedAfterFailure: { model.isDraftLocked($0) }
             )
         }
@@ -105,7 +106,7 @@ struct RootView: View {
             Button("Retry lookup") {
                 Task { await lookUp(failedScanRawValue) }
             }
-            Button("Add photos or enter manually") {
+            Button("Use photos or enter manually") {
                 reviewDraft = model.manualDraft(rawValue: failedScanRawValue)
             }
             Button("Cancel", role: .cancel) {}
@@ -118,7 +119,7 @@ struct RootView: View {
         do {
             reviewDraft = try await model.prepareDraft(rawValue: rawValue)
         } catch {
-            lookupFailureMessage = "\(error.localizedDescription) You can retry or enter the product details yourself."
+            lookupFailureMessage = "\(error.localizedDescription) You can retry, analyze package photos, or enter details manually."
             failedScanRawValue = rawValue
             showingLookupFailure = true
         }
@@ -143,7 +144,7 @@ struct RootView: View {
 private struct ScanStartView: View {
     let isLookingUp: Bool
     let scan: () -> Void
-    let manualEntry: () -> Void
+    let photoFallback: () -> Void
 
     var body: some View {
         GeometryReader { geometry in
@@ -158,7 +159,7 @@ private struct ScanStartView: View {
                             .accessibilityHidden(true)
                         Text(isLookingUp ? "Looking up product" : "Ready to scan")
                             .font(.title.bold())
-                        Text("Scan one packaged product. You will verify quantity, date, storage, and package condition before submission.")
+                        Text("Scan the barcode first. If it is missing, unreadable, or not in the catalog, package photos can help identify the item.")
                             .font(.body)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -166,14 +167,14 @@ private struct ScanStartView: View {
 
                     VStack(spacing: 16) {
                         Button(action: scan) {
-                            actionLabel("Open scanner", detail: "Use the iPhone camera", icon: "camera.viewfinder")
+                            actionLabel("Open scanner", detail: "Fast barcode product lookup", icon: "barcode.viewfinder")
                                 .foregroundStyle(.white)
                                 .background(.green, in: RoundedRectangle(cornerRadius: 20))
                         }
                         .accessibilityHint("Scan a package barcode")
 
-                        Button(action: manualEntry) {
-                            actionLabel("Enter item manually", detail: "No barcode or scanner available", icon: "square.and.pencil")
+                        Button(action: photoFallback) {
+                            actionLabel("No readable barcode", detail: "Use package photos or enter details", icon: "camera.fill")
                                 .foregroundStyle(.primary)
                                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
                                 .overlay {
@@ -181,7 +182,7 @@ private struct ScanStartView: View {
                                         .strokeBorder(.green.opacity(0.5), lineWidth: 1)
                                 }
                         }
-                        .accessibilityHint("Enter product details without scanning")
+                        .accessibilityHint("Open the photo-analysis fallback")
                     }
                     .buttonStyle(.plain)
                     .disabled(isLookingUp)

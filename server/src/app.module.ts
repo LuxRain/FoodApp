@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
+import { PhotoAnalysisService } from "./analysis/photo-analysis.service";
 import { RequestActorGuard } from "./auth/request-context";
 import { DashboardService } from "./dashboard/dashboard.service";
 import { DatabaseService } from "./database/database.service";
@@ -10,6 +11,6 @@ import { ProductLookupService } from "./product/product-lookup.service";
 
 @Module({
   controllers: [IntakeController],
-  providers: [DatabaseService, IntakeService, DashboardService, ProductLookupService, EvidenceService, RequestActorGuard, { provide: APP_GUARD, useExisting: RequestActorGuard }],
+  providers: [DatabaseService, IntakeService, DashboardService, ProductLookupService, EvidenceService, PhotoAnalysisService, RequestActorGuard, { provide: APP_GUARD, useExisting: RequestActorGuard }],
 })
 export class AppModule {}

@@ -106,7 +106,7 @@ struct FoodDonationCoreChecks {
             requiredFieldConfidence: [1, 1, 1]
         ), idempotencyKey: "swift-item-\(runID)")
         let testJPEG = Data(base64Encoded: "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYyLjExLjEwMAD/2wBDAAgKCgsKCw0NDQ0NDRAPEBAQEBAQEBAQEBASEhIVFRUSEhIQEBISFBQVFRcXFxUVFRUXFxkZGR4eHBwjIyQrKzP/xABMAAEBAAAAAAAAAAAAAAAAAAAABgEBAQAAAAAAAAAAAAAAAAAABgcQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAQABADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCtAR06f//Z")!
-        let uploaded = try await api.uploadEvidence(itemID: item.id, jpegData: testJPEG, capturedAt: .now)
+        let uploaded = try await api.uploadEvidence(itemID: item.id, jpegData: testJPEG, capturedAt: .now, evidenceType: "date_label")
         precondition(uploaded.intakeItemId == item.id)
         let evidence = try await api.evidence(itemID: item.id)
         precondition(evidence.items.contains { $0.id == uploaded.id })
