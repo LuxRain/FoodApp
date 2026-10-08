@@ -9,6 +9,7 @@
     "test": "tsx --test src/**/*.test.ts",
     "test:e2e": "node scripts/e2e.mjs",
     "analyze:photos": "tsx scripts/analyze-photos.ts",
+    "evaluate:intake": "node scripts/evaluate-intake.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

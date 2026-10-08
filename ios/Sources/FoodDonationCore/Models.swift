@@ -169,6 +169,8 @@ public struct SubmitItemResponse: Codable, Sendable {
     public let status: IntakeStatus
     public let routingReasonCodes: [String]
     public let inventoryLotId: UUID?
+    public let trustScore: Int?
+    public let trustAlgorithmVersion: String?
 }
 
 public struct AdminReviewQueueResponse: Codable, Sendable {
@@ -196,6 +198,9 @@ public struct AdminReviewItem: Codable, Identifiable, Sendable {
     public let calorieBasis: String?
     public let allergens: [AllergenDeclaration]
     public let routingReasonCodes: [String]
+    public let trustScore: Int?
+    public let trustFactors: [String: Int]?
+    public let trustAlgorithmVersion: String?
     public let status: IntakeStatus
     public let createdAt: Date
 }

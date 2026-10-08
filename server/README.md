@@ -11,12 +11,23 @@ psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/001_initia
 psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/002_development_seed.sql
 psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/003_manual_intake_code.sql
 psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/004_intake_category.sql
+psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/005_trust_privacy_ledger.sql
 cp .env.example .env
 npm run start:dev
 ```
 
 The development seed creates the demo organization, main receiving location, regular/admin users, and barcode `012345678905` for the Low-Sodium Black Beans test product. Apply it once to a new local database.
-Run each migration only once. If your database already has migrations 001–003, apply only `004_intake_category.sql`; do not rerun the earlier scripts.
+Run each migration only once. If your database already has migrations 001–004, apply only `005_trust_privacy_ledger.sql`; do not rerun the earlier scripts.
+
+## Trust, auditability, privacy, and evaluation
+
+On submission, the server stores `intake-trust-v1`, a 0–100 score and a factor breakdown in `intake_items`. It combines barcode identity, field confidence, photo/date evidence, and package/storage checks. The score is a triage aid, **not** a food-safety clearance; the existing acceptance policy still determines admin review. Scores are recalculated only on submission and are not retroactively populated for old items. Admin review responses include the score and factors.
+
+Creation, submission, and admin decisions append minimal events to a per-organization SHA-256 hash chain in the same database transaction as the intake change. `GET /v1/admin/ledger/verify` checks sequence, links, and head. The chain covers **new events after migration 005**, not historical intake records. This is blockchain-style *tamper-evident logging*, not a decentralized blockchain or protection against a privileged database administrator who can rewrite the chain. For stronger evidence, periodically export and independently timestamp/anchor the head hash outside this database.
+
+An admin can call `POST /v1/admin/privacy/monthly-releases/YYYY-MM` for a **closed UTC month**. The server releases a fixed histogram of submitted-item statuses with Laplace noise (epsilon 1, change-one-item L1 sensitivity 2). It saves and reuses the same release forever, so refreshing cannot average away fresh noise. Values can be zero or differ from exact inventory. The privacy unit is one intake item; this guarantee applies **only to that aggregate release**, not to the app's exact operational endpoints, photos, or donor records. Do not use noisy counts for inventory or safety decisions.
+
+To evaluate the proposed 40% improvement, record matched manual-baseline and assisted-workflow durations including corrections and submission. Create a CSV with header `task_id,baseline_seconds,assisted_seconds` and at least ten unique task rows, then run `npm run evaluate:intake -- /absolute/path/paired-intake-times.csv`. The script reports aggregate time reduction and a paired bootstrap 95% interval; it marks the target met only if the interval's lower bound is at least 40%. No improvement is claimed until representative measurements exist.
 
 ## Manual product entry
 

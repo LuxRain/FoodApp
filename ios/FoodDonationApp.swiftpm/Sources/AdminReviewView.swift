@@ -132,6 +132,12 @@ private struct AdminReviewDetailView: View {
             }
 
             Section("Why review is needed") {
+                if let score = item.trustScore {
+                    LabeledContent("Evidence score", value: "\(score)/100")
+                    Text("A triage aid only. It does not approve food safety or replace your inspection.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 ForEach(item.routingReasonCodes, id: \.self) { code in
                     Label(AdminReviewView.label(code), systemImage: "exclamationmark.triangle")
                 }

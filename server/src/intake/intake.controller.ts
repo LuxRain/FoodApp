@@ -6,13 +6,15 @@ import { Actor, RequestActorGuard, Roles, type RequestActor } from "../auth/requ
 import { DashboardService } from "../dashboard/dashboard.service";
 import { EvidenceService } from "../evidence/evidence.service";
 import { ProductLookupService } from "../product/product-lookup.service";
+import { IntakeLedgerService } from "../ledger/intake-ledger.service";
+import { MonthlyReleaseService } from "../privacy/monthly-release.service";
 import { AdminDecisionDto, CreateItemDto, CreateSessionDto, ProductLookupDto, SubmitItemDto } from "./dto";
 import { IntakeService } from "./intake.service";
 
 @Controller("v1")
 @UseGuards(RequestActorGuard)
 export class IntakeController {
-  constructor(private readonly intake: IntakeService, private readonly dashboardService: DashboardService, private readonly productLookup: ProductLookupService, private readonly evidence: EvidenceService, private readonly photoAnalysis: PhotoAnalysisService) {}
+  constructor(private readonly intake: IntakeService, private readonly dashboardService: DashboardService, private readonly productLookup: ProductLookupService, private readonly evidence: EvidenceService, private readonly photoAnalysis: PhotoAnalysisService, private readonly ledger: IntakeLedgerService, private readonly monthlyRelease: MonthlyReleaseService) {}
 
   @Post("photo-analysis")
   @UseInterceptors(FilesInterceptor("photos", 8, { limits: { fileSize: 10 * 1024 * 1024, files: 8 } }))
@@ -63,4 +65,12 @@ export class IntakeController {
   @Post("admin/intake-items/:itemId/decision")
   @Roles("admin")
   decide(@Actor() actor: RequestActor, @Param("itemId") itemId: string, @Body() body: AdminDecisionDto, @Headers("idempotency-key") key: string) { return this.intake.decide(actor, itemId, body, key); }
+
+  @Get("admin/ledger/verify")
+  @Roles("admin")
+  verifyLedger(@Actor() actor: RequestActor) { return this.ledger.verify(actor.organizationId); }
+
+  @Post("admin/privacy/monthly-releases/:month")
+  @Roles("admin")
+  releaseMonthly(@Actor() actor: RequestActor, @Param("month") month: string) { return this.monthlyRelease.release(actor, month); }
 }

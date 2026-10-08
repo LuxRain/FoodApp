@@ -4,6 +4,8 @@ import { DatabaseService } from "../database/database.service";
 import { evaluateAcceptance } from "../domain/policy";
 import type { AcceptanceInput, DateType, StorageType } from "../domain/types";
 import type { RequestActor } from "../auth/request-context";
+import { IntakeLedgerService } from "../ledger/intake-ledger.service";
+import { scoreIntake } from "../trust/trust-score";
 import type { AdminDecisionDto, CreateItemDto, CreateSessionDto, SubmitItemDto } from "./dto";
 
 type ItemRow = {
@@ -14,7 +16,7 @@ type ItemRow = {
 
 @Injectable()
 export class IntakeService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly ledger: IntakeLedgerService) {}
 
   async createSession(actor: RequestActor, dto: CreateSessionDto) {
     const existing = await this.db.query("SELECT id, status FROM intake_sessions WHERE organization_id = $1 AND client_mutation_id = $2", [actor.organizationId, dto.clientMutationId]);
@@ -51,6 +53,7 @@ export class IntakeService {
       );
       if (!result.rowCount) throw new BadRequestException("Session or storage location is invalid");
       const response = result.rows[0];
+      await this.ledger.append(client, actor.organizationId, "item_created", response.id, actor.userId, { status: response.status, version: response.version });
       await client.query("INSERT INTO sync_mutations (organization_id, client_mutation_id, result) VALUES ($1, $2, $3::jsonb)", [actor.organizationId, idempotencyKey, JSON.stringify(response)]);
       return response;
     });
@@ -73,15 +76,28 @@ export class IntakeService {
         storageType: item.storage_type, packageCondition: item.package_condition, temperatureStatus: item.temperature_status,
         allergenConflict: dto.allergenConflict, evidenceConflict: dto.evidenceConflict, duplicateSuspected: dto.duplicateSuspected,
       });
+      const evidence = await client.query<{ photo_count: string; date_label_count: string }>(
+        `SELECT count(*)::text AS photo_count, count(*) FILTER (WHERE evidence_type = 'date_label')::text AS date_label_count
+         FROM evidence_assets WHERE intake_item_id = $1`, [itemId],
+      );
+      const trust = scoreIntake({
+        productId: item.product_id, identitySource: item.identity_source, requiredFieldConfidence: item.required_field_confidence,
+        dateType: item.date_type, dateValue: item.date_value, storageType: item.storage_type,
+        packageCondition: item.package_condition, temperatureStatus: item.temperature_status,
+        allergenConflict: dto.allergenConflict, evidenceConflict: dto.evidenceConflict, duplicateSuspected: dto.duplicateSuspected,
+        photoCount: Number(evidence.rows[0].photo_count), hasDateLabelPhoto: Number(evidence.rows[0].date_label_count) > 0,
+      });
       const status = outcome.route === "auto_accept" ? "auto_accepted" : "pending_admin_review";
       await client.query(
         `UPDATE intake_items SET status = $3::intake_status, user_reviewed_at = $4, submitted_at = now(), decided_at = CASE WHEN $3::text = 'auto_accepted' THEN now() ELSE NULL END,
-          decision_by = CASE WHEN $3::text = 'auto_accepted' THEN 'system' ELSE NULL END, routing_reason_codes = $5, version = version + 1, updated_at = now()
-         WHERE id = $1 AND organization_id = $2`, [itemId, actor.organizationId, status, dto.userReviewedAt, outcome.reasonCodes],
+          decision_by = CASE WHEN $3::text = 'auto_accepted' THEN 'system' ELSE NULL END, routing_reason_codes = $5,
+          trust_score = $6, trust_factors = $7::jsonb, trust_algorithm_version = $8, version = version + 1, updated_at = now()
+         WHERE id = $1 AND organization_id = $2`, [itemId, actor.organizationId, status, dto.userReviewedAt, outcome.reasonCodes, trust.score, JSON.stringify(trust.factors), trust.version],
       );
       let inventoryLotId: string | null = null;
       if (status === "auto_accepted") inventoryLotId = await this.createInventory(client, actor, item, idempotencyKey, "Automatic acceptance");
-      const response = { intakeItemId: itemId, status, routingReasonCodes: outcome.reasonCodes, inventoryLotId };
+      const response = { intakeItemId: itemId, status, routingReasonCodes: outcome.reasonCodes, inventoryLotId, trustScore: trust.score, trustAlgorithmVersion: trust.version };
+      await this.ledger.append(client, actor.organizationId, "item_submitted", itemId, actor.userId, { status, routingReasonCodes: outcome.reasonCodes, inventoryLotId, trustScore: trust.score, trustAlgorithmVersion: trust.version });
       await client.query("INSERT INTO sync_mutations (organization_id, client_mutation_id, result) VALUES ($1, $2, $3::jsonb)", [actor.organizationId, idempotencyKey, JSON.stringify(response)]);
       return response;
     });
@@ -94,7 +110,8 @@ export class IntakeService {
         i.date_label_raw AS "dateLabelRaw", i.storage_type AS "storageType", loc.name AS "storageLocationName",
         i.package_condition AS "packageCondition", i.temperature_status AS "temperatureStatus",
         i.calorie_status AS "calorieStatus", i.calories::float8, i.calorie_basis AS "calorieBasis",
-        i.allergen_summary AS allergens, i.routing_reason_codes AS "routingReasonCodes", i.status, i.created_at AS "createdAt"
+        i.allergen_summary AS allergens, i.routing_reason_codes AS "routingReasonCodes", i.trust_score AS "trustScore",
+        i.trust_factors AS "trustFactors", i.trust_algorithm_version AS "trustAlgorithmVersion", i.status, i.created_at AS "createdAt"
        FROM intake_items i JOIN locations loc ON loc.id = i.storage_location_id
        WHERE i.organization_id = $1 AND i.status IN ('pending_admin_review', 'quarantined') ORDER BY i.created_at`, [actor.organizationId],
     );
@@ -127,6 +144,7 @@ export class IntakeService {
       if (status === "rejected" && item.status === "quarantined") await this.disposeInventory(client, actor, item, idempotencyKey, dto.reason);
       const response = { intakeItemId: itemId, status, inventoryLotId };
       await client.query("INSERT INTO audit_events (organization_id, actor_id, action, target_type, target_id, after_value) VALUES ($1, $2, $3, 'intake_item', $4, $5::jsonb)", [actor.organizationId, actor.userId, `admin_${dto.decision}`, itemId, JSON.stringify(response)]);
+      await this.ledger.append(client, actor.organizationId, "admin_decision", itemId, actor.userId, { decision: dto.decision, status, inventoryLotId });
       await client.query("INSERT INTO sync_mutations (organization_id, client_mutation_id, result) VALUES ($1, $2, $3::jsonb)", [actor.organizationId, idempotencyKey, JSON.stringify(response)]);
       return response;
     });

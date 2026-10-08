@@ -8,9 +8,11 @@ import { EvidenceService } from "./evidence/evidence.service";
 import { IntakeController } from "./intake/intake.controller";
 import { IntakeService } from "./intake/intake.service";
 import { ProductLookupService } from "./product/product-lookup.service";
+import { IntakeLedgerService } from "./ledger/intake-ledger.service";
+import { MonthlyReleaseService } from "./privacy/monthly-release.service";
 
 @Module({
   controllers: [IntakeController],
-  providers: [DatabaseService, IntakeService, DashboardService, ProductLookupService, EvidenceService, PhotoAnalysisService, RequestActorGuard, { provide: APP_GUARD, useExisting: RequestActorGuard }],
+  providers: [DatabaseService, IntakeService, DashboardService, ProductLookupService, EvidenceService, PhotoAnalysisService, IntakeLedgerService, MonthlyReleaseService, RequestActorGuard, { provide: APP_GUARD, useExisting: RequestActorGuard }],
 })
 export class AppModule {}
