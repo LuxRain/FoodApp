@@ -19,13 +19,8 @@ struct IntakeReviewView: View {
     @State private var isAddingPhotos = false
     @State private var isAnalyzing = false
     @State private var analysis: PhotoAnalysisResponse?
-    @State private var correctedPrintedDateText: String?
-    @State private var printedDateEditText = ""
-    @State private var isEditingPrintedDateText = false
     @State private var editingField: IntakeEditField?
-    @State private var selectedPhoto: PhotosPickerItem?
     @State private var selectedPackagePhotos: [PhotosPickerItem] = []
-    @State private var showingCamera = false
     @State private var showingPackageCamera = false
     @State private var previewPhoto: IntakePhoto?
     @State private var errorMessage: String?
@@ -113,9 +108,10 @@ struct IntakeReviewView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if draft.candidate == nil {
-                    Section("Package photos (\(photoCount)/8)") {
-                        Text("No barcode match? Photograph one package: front, ingredients, allergens, weight, and printed date. Gemma 4 can suggest details, which you must verify. The date-label photo counts toward the eight-photo limit.")
+                Section("Package photos and date (\(photoCount)/8)") {
+                        Text(draft.candidate == nil
+                             ? "Photograph one package: front, ingredients, allergens, weight, and printed date. AI can suggest details, which you must verify."
+                             : "Add a clear photo of the printed date, then tap Read date below that photo. Photos are optional if you enter the date manually.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         if !previewPhotos.isEmpty {
@@ -197,16 +193,18 @@ struct IntakeReviewView: View {
                         .font(.subheadline.weight(.semibold))
                         .disabled(photoCount >= 8 || isAddingPhotos || isReadingPhoto || isAnalyzing || isSubmitting)
                         if isAddingPhotos { ProgressView("Adding photos…") }
-                        Button {
-                            Task { await analyzePackagePhotos() }
-                        } label: {
-                            Label("Analyze photos with AI", systemImage: "sparkles")
-                                .frame(maxWidth: .infinity, minHeight: 48)
+                        if draft.candidate == nil {
+                            Button {
+                                Task { await analyzePackagePhotos() }
+                            } label: {
+                                Label("Analyze photos with AI", systemImage: "sparkles")
+                                    .frame(maxWidth: .infinity, minHeight: 48)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(photoCount == 0 || isAddingPhotos || isReadingPhoto || isAnalyzing || isSubmitting)
+                            if isAnalyzing { ProgressView("Reading package photos… This may take a minute.") }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(photoCount == 0 || isAddingPhotos || isReadingPhoto || isAnalyzing || isSubmitting)
-                        if isAnalyzing { ProgressView("Reading package photos… This may take a minute.") }
-                        if let analysis {
+                        if draft.candidate == nil, let analysis {
                             Text("AI suggestions — compare with the physical package before using. Missing means not visible, not absent.")
                                 .font(.caption).foregroundStyle(.orange)
                             if let value = analysis.productName { LabeledContent("Product", value: value) }
@@ -214,127 +212,17 @@ struct IntakeReviewView: View {
                             if let value = analysis.ingredients { LabeledContent("Ingredients", value: value) }
                             if let value = analysis.allergens { LabeledContent("Allergen text", value: value) }
                             if let value = analysis.packageWeight { LabeledContent("Weight", value: value) }
-                            if let value = analysis.printedDate {
-                                HStack(alignment: .top, spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Printed date text")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                        Text(correctedPrintedDateText ?? value)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                    Button {
-                                        printedDateEditText = correctedPrintedDateText ?? value
-                                        isEditingPrintedDateText = true
-                                    } label: {
-                                        Image(systemName: "pencil")
-                                            .frame(width: 44, height: 44)
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .accessibilityLabel("Edit printed date text")
-                                    .disabled(isAnalyzing || isSubmitting)
-                                }
-                                if isEditingPrintedDateText {
-                                    TextField("Correct printed date text", text: $printedDateEditText, axis: .vertical)
-                                        .lineLimit(1...3)
-                                        .textInputAutocapitalization(.never)
-                                        .autocorrectionDisabled()
-                                    HStack {
-                                        Button("Cancel") { isEditingPrintedDateText = false }
-                                        Spacer()
-                                        Button("Save correction") { savePrintedDateCorrection() }
-                                            .disabled(printedDateEditText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                    }
-                                    .buttonStyle(.borderless)
-                                    Text("Check the calendar date below and confirm it against the package before submitting.")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
                             Button("Apply product and brand suggestions") { applyPhotoSuggestions(analysis) }
                                 .disabled(analysis.productName == nil && analysis.brand == nil)
-                            Text("AI suggestions are not confirmed inventory fields. A saved correction to printed date text appears in Package date below; check the actual date and confirm it separately.")
+                            Text("AI text for ingredients, allergens, and weight is shown for comparison only. Printed date text appears once below; check the actual date and confirm it separately.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                    }
-                }
-
-                Section("Quantity") {
-                    editableRow("Quantity", value: draft.quantity.formatted(), field: .quantity) {
-                        TextField("Quantity", value: $draft.quantity, format: .number)
-                            .keyboardType(.decimalPad)
-                    }
-                    editableRow("Unit", value: unitLabel, field: .unit) {
-                        Picker("Unit", selection: $draft.quantityUnit) {
-                            Text("Each").tag("each")
-                            Text("Can").tag("can")
-                            Text("Box").tag("box")
-                            Text("Pound").tag("lb")
-                        }
-                        .pickerStyle(.menu)
-                    }
-                }
-
-                Section("Package date") {
-                    if draft.candidate == nil {
-                        if draft.packagePhotoData != nil {
-                            Label("Date-label photo selected above", systemImage: "calendar.badge.checkmark")
-                            Button("Clear date selection") { clearDateSelection() }
-                                .buttonStyle(.borderless)
-                                .disabled(isReadingPhoto || isAddingPhotos || isAnalyzing || isSubmitting)
-                        } else {
-                            Text("Tap Read date below a package photo above, or enter the printed date manually.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        if let data = draft.packagePhotoData, let image = UIImage(data: data) {
-                            ZStack(alignment: .topTrailing) {
-                                Button {
-                                    previewPhoto = IntakePhoto(id: draft.id, jpegData: data,
-                                                              capturedAt: draft.packagePhotoCapturedAt ?? .now)
-                                } label: {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(maxHeight: 180)
-                                }
-                                .buttonStyle(.borderless)
-                                .accessibilityLabel("Preview date-label photo")
-                                Button {
-                                    removeDatePhoto()
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.title2)
-                                        .foregroundStyle(.white)
-                                        .shadow(color: .black.opacity(0.8), radius: 2)
-                                        .frame(width: 44, height: 44)
-                                }
-                                .buttonStyle(.borderless)
-                                .accessibilityLabel("Remove date-label photo")
-                                .disabled(isReadingPhoto || isAnalyzing || isSubmitting)
-                            }
-                        }
-                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                            Button("Take date photo", systemImage: "camera") { showingCamera = true }
-                                .buttonStyle(.borderless)
-                                .frame(minHeight: 44)
-                                .disabled(isReadingPhoto || isAddingPhotos || isAnalyzing || isSubmitting || (draft.packagePhotoData == nil && photoCount >= 8))
-                        }
-                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                            Label("Choose date photo from library", systemImage: "photo")
-                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(isReadingPhoto || isAddingPhotos || isAnalyzing || isSubmitting || (draft.packagePhotoData == nil && photoCount >= 8))
-                    }
-
+                        Text("Printed date")
+                            .font(.headline)
                     if isReadingPhoto {
                         ProgressView("Reading printed date…")
                     }
-                    Text(draft.candidate == nil
-                         ? "OCR reads the selected package photo. Compare the result with the package and any Gemma suggestion; confirm the actual date yourself."
-                         : "Aim at the printed date. Check the on-device OCR result against the package and confirm the actual date yourself.")
+                    Text("Tap Read date below a photo for OCR, or enter the printed date manually. Confirm the actual date against the package before submitting.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -398,9 +286,9 @@ struct IntakeReviewView: View {
                                 get: { draft.dateLabelRaw },
                                 set: {
                                     draft.dateLabelRaw = $0
-                                    correctedPrintedDateText = $0
                                     draft.dateConfirmed = false
                                     if draft.dateSource == "Package photo" { draft.dateSource = "Photo, corrected" }
+                                    if draft.dateSource == "AI suggestion · unverified" { draft.dateSource = "Manual correction" }
                                 }
                             ), axis: .vertical)
                                 .lineLimit(1...3)
@@ -423,6 +311,22 @@ struct IntakeReviewView: View {
                         Label("No date will be invented. This item will be sent for review.", systemImage: "info.circle")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Quantity") {
+                    editableRow("Quantity", value: draft.quantity.formatted(), field: .quantity) {
+                        TextField("Quantity", value: $draft.quantity, format: .number)
+                            .keyboardType(.decimalPad)
+                    }
+                    editableRow("Unit", value: unitLabel, field: .unit) {
+                        Picker("Unit", selection: $draft.quantityUnit) {
+                            Text("Each").tag("each")
+                            Text("Can").tag("can")
+                            Text("Box").tag("box")
+                            Text("Pound").tag("lb")
+                        }
+                        .pickerStyle(.menu)
                     }
                 }
 
@@ -538,32 +442,12 @@ struct IntakeReviewView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingCamera) {
-                PackagePhotoCamera { data in
-                    Task { await readPhoto(data) }
-                }
-                .ignoresSafeArea()
-            }
             .sheet(isPresented: $showingPackageCamera) {
                 PackagePhotoCamera { data in addPackagePhoto(data) }
                     .ignoresSafeArea()
             }
             .fullScreenCover(item: $previewPhoto) { photo in
                 PackagePhotoPreviewView(photos: previewPhotos, initialPhotoID: photo.id)
-            }
-            .onChange(of: selectedPhoto) { _, photo in
-                guard let photo else { return }
-                Task {
-                    defer { selectedPhoto = nil }
-                    do {
-                        guard let data = try await photo.loadTransferable(type: Data.self) else {
-                            throw AppValidationError("Could not load the selected photo.")
-                        }
-                        await readPhoto(data)
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                }
             }
             .onChange(of: selectedPackagePhotos) { _, photos in
                 guard !photos.isEmpty else { return }
@@ -692,8 +576,20 @@ struct IntakeReviewView: View {
         do {
             let result = try await analyze(photos)
             analysis = result
-            correctedPrintedDateText = nil
-            isEditingPrintedDateText = false
+            if draft.dateSource == "AI suggestion · unverified" && !draft.dateConfirmed {
+                draft.dateLabelRaw = ""
+                draft.hasPrintedDate = false
+                draft.dateValue = nil
+                draft.dateSource = "Not captured"
+                draft.dateConfidence = nil
+            }
+            if draft.dateLabelRaw.isEmpty, let printedDate = result.printedDate?.trimmingCharacters(in: .whitespacesAndNewlines), !printedDate.isEmpty {
+                draft.dateLabelRaw = printedDate
+                draft.hasPrintedDate = true
+                draft.dateConfirmed = false
+                draft.dateConfidence = nil
+                draft.dateSource = "AI suggestion · unverified"
+            }
             if draft.productName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let name = result.productName {
                 draft.productName = name
@@ -719,18 +615,6 @@ struct IntakeReviewView: View {
         errorMessage = nil
     }
 
-    private func savePrintedDateCorrection() {
-        let corrected = printedDateEditText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !corrected.isEmpty else { return }
-        correctedPrintedDateText = corrected
-        draft.dateLabelRaw = corrected
-        draft.hasPrintedDate = true
-        draft.dateConfirmed = false
-        draft.dateConfidence = nil
-        draft.dateSource = "Manual correction"
-        isEditingPrintedDateText = false
-    }
-
     private func invalidateAnalysis() {
         if let analysis, draft.usedPhotoSuggestions == true {
             if draft.productName == analysis.productName { draft.productName = "" }
@@ -738,8 +622,13 @@ struct IntakeReviewView: View {
             draft.usedPhotoSuggestions = nil
         }
         analysis = nil
-        correctedPrintedDateText = nil
-        isEditingPrintedDateText = false
+        if draft.dateSource == "AI suggestion · unverified" && !draft.dateConfirmed {
+            draft.hasPrintedDate = false
+            draft.dateValue = nil
+            draft.dateLabelRaw = ""
+            draft.dateSource = "Not captured"
+            draft.dateConfidence = nil
+        }
     }
 
     private func addPackagePhoto(_ data: Data) {
@@ -761,18 +650,6 @@ struct IntakeReviewView: View {
 
     private func removeDatePhoto() {
         invalidateAnalysis()
-        draft.packagePhotoData = nil
-        draft.packagePhotoCapturedAt = nil
-        clearPhotoDateFields()
-    }
-
-    private func clearDateSelection() {
-        if let data = draft.packagePhotoData {
-            var photos = draft.referencePhotos ?? []
-            photos.append(IntakePhoto(id: UUID(), jpegData: data,
-                                      capturedAt: draft.packagePhotoCapturedAt ?? .now))
-            draft.referencePhotos = photos
-        }
         draft.packagePhotoData = nil
         draft.packagePhotoCapturedAt = nil
         clearPhotoDateFields()
@@ -836,25 +713,6 @@ struct IntakeReviewView: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
-        }
-    }
-
-    private func readPhoto(_ data: Data) async {
-        guard draft.packagePhotoData != nil || photoCount < 8 else {
-            errorMessage = "The eight-photo limit has been reached. Remove a photo to add the date label."
-            return
-        }
-        isReadingPhoto = true
-        errorMessage = nil
-        defer { isReadingPhoto = false }
-        do {
-            let jpeg = try PackageDateOCR.normalizedJPEG(from: data)
-            invalidateAnalysis()
-            draft.packagePhotoData = jpeg
-            draft.packagePhotoCapturedAt = .now
-            try await recognizeDate(jpeg)
-        } catch {
-            errorMessage = "Could not read the photo: \(error.localizedDescription)"
         }
     }
 
