@@ -3,6 +3,12 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
+private enum IntakeEditField: Hashable {
+    case productName, brand, category, quantity, unit, hasPrintedDate, dateType, date, printedText
+    case storage, packageCondition, temperature, calories, calorieBasis
+    case allergen(String)
+}
+
 struct IntakeReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: IntakeDraft
@@ -13,6 +19,10 @@ struct IntakeReviewView: View {
     @State private var isAddingPhotos = false
     @State private var isAnalyzing = false
     @State private var analysis: PhotoAnalysisResponse?
+    @State private var correctedPrintedDateText: String?
+    @State private var printedDateEditText = ""
+    @State private var isEditingPrintedDateText = false
+    @State private var editingField: IntakeEditField?
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var selectedPackagePhotos: [PhotosPickerItem] = []
     @State private var showingCamera = false
@@ -46,21 +56,51 @@ struct IntakeReviewView: View {
                     }
                 }
                 Section("Product") {
-                    TextField("Product name", text: $draft.productName)
-                    TextField("Brand", text: $draft.brand)
-                    Picker("Category", selection: Binding(
-                        get: { FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue },
-                        set: { draft.category = $0 }
-                    )) {
-                        ForEach(FoodCategory.allCases) { category in
-                            Text(category.title).tag(category.rawValue)
+                    editableRow("Product name", value: draft.productName, field: .productName) {
+                        TextField("Product name", text: Binding(
+                            get: { draft.productName },
+                            set: { newValue in
+                                if draft.candidate != nil && newValue != draft.productName { draft.identityEdited = true }
+                                draft.productName = newValue
+                            }
+                        ))
+                            .textInputAutocapitalization(.words)
+                    }
+                    editableRow("Brand", value: draft.brand, field: .brand) {
+                        TextField("Brand", text: Binding(
+                            get: { draft.brand },
+                            set: { newValue in
+                                if draft.candidate != nil && newValue != draft.brand { draft.identityEdited = true }
+                                draft.brand = newValue
+                            }
+                        ))
+                    }
+                    editableRow("Category", value: FoodCategory.from(raw: draft.category ?? draft.candidate?.category).title, field: .category) {
+                        Picker("Category", selection: Binding(
+                            get: { FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue },
+                            set: { newValue in
+                                if draft.candidate != nil && newValue != FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue {
+                                    draft.identityEdited = true
+                                }
+                                draft.category = newValue
+                            }
+                        )) {
+                            ForEach(FoodCategory.allCases) { category in
+                                Text(category.title).tag(category.rawValue)
+                            }
                         }
+                        .pickerStyle(.menu)
                     }
                     if let code = draft.scan?.raw, !code.isEmpty {
                         LabeledContent("Scanned code", value: code)
                             .font(.system(.body, design: .monospaced))
                     }
                     LabeledContent("Source", value: draft.usedPhotoSuggestions == true ? "Photo analysis · verify" : sourceLabel)
+                    if draft.identityEdited == true {
+                        Label("Edited catalog identity — an admin will review this item before it enters inventory.", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                     if let candidate = draft.candidate {
                         LabeledContent("Confidence", value: candidate.confidence.formatted(.percent.precision(.fractionLength(0))))
                     } else {
@@ -68,6 +108,9 @@ struct IntakeReviewView: View {
                             .font(.caption)
                             .foregroundStyle(.orange)
                     }
+                    Text("Scanned code, source, and confidence are read-only evidence. Use the pencils above to correct the donation record.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if draft.candidate == nil {
@@ -171,23 +214,64 @@ struct IntakeReviewView: View {
                             if let value = analysis.ingredients { LabeledContent("Ingredients", value: value) }
                             if let value = analysis.allergens { LabeledContent("Allergen text", value: value) }
                             if let value = analysis.packageWeight { LabeledContent("Weight", value: value) }
-                            if let value = analysis.printedDate { LabeledContent("Printed date text", value: value) }
+                            if let value = analysis.printedDate {
+                                HStack(alignment: .top, spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Printed date text")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                        Text(correctedPrintedDateText ?? value)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    Button {
+                                        printedDateEditText = correctedPrintedDateText ?? value
+                                        isEditingPrintedDateText = true
+                                    } label: {
+                                        Image(systemName: "pencil")
+                                            .frame(width: 44, height: 44)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .accessibilityLabel("Edit printed date text")
+                                    .disabled(isAnalyzing || isSubmitting)
+                                }
+                                if isEditingPrintedDateText {
+                                    TextField("Correct printed date text", text: $printedDateEditText, axis: .vertical)
+                                        .lineLimit(1...3)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled()
+                                    HStack {
+                                        Button("Cancel") { isEditingPrintedDateText = false }
+                                        Spacer()
+                                        Button("Save correction") { savePrintedDateCorrection() }
+                                            .disabled(printedDateEditText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    Text("Check the calendar date below and confirm it against the package before submitting.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             Button("Apply product and brand suggestions") { applyPhotoSuggestions(analysis) }
                                 .disabled(analysis.productName == nil && analysis.brand == nil)
-                            Text("Ingredients, allergen text, weight, and date are shown for verification only; this pilot does not save those AI suggestions as confirmed inventory fields.")
+                            Text("AI suggestions are not confirmed inventory fields. A saved correction to printed date text appears in Package date below; check the actual date and confirm it separately.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
 
                 Section("Quantity") {
-                    TextField("Quantity", value: $draft.quantity, format: .number)
-                        .keyboardType(.decimalPad)
-                    Picker("Unit", selection: $draft.quantityUnit) {
-                        Text("Each").tag("each")
-                        Text("Can").tag("can")
-                        Text("Box").tag("box")
-                        Text("Pound").tag("lb")
+                    editableRow("Quantity", value: draft.quantity.formatted(), field: .quantity) {
+                        TextField("Quantity", value: $draft.quantity, format: .number)
+                            .keyboardType(.decimalPad)
+                    }
+                    editableRow("Unit", value: unitLabel, field: .unit) {
+                        Picker("Unit", selection: $draft.quantityUnit) {
+                            Text("Each").tag("each")
+                            Text("Can").tag("can")
+                            Text("Box").tag("box")
+                            Text("Pound").tag("lb")
+                        }
+                        .pickerStyle(.menu)
                     }
                 }
 
@@ -254,57 +338,73 @@ struct IntakeReviewView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Toggle("Package has a printed date", isOn: $draft.hasPrintedDate)
-                        .onChange(of: draft.hasPrintedDate) { _, hasDate in
-                            draft.dateConfirmed = false
-                            if !hasDate {
-                                draft.dateValue = nil
-                                draft.dateLabelRaw = ""
-                                draft.dateConfidence = nil
-                                draft.dateSource = "Not captured"
-                            }
-                        }
-                    if draft.hasPrintedDate {
-                        Picker("Date type", selection: Binding(
-                            get: { draft.dateType },
-                            set: {
-                                draft.dateType = $0
+                    editableRow("Package has a printed date", value: draft.hasPrintedDate ? "Yes" : "No", field: .hasPrintedDate) {
+                        Toggle("Package has a printed date", isOn: $draft.hasPrintedDate)
+                            .onChange(of: draft.hasPrintedDate) { _, hasDate in
                                 draft.dateConfirmed = false
-                                if draft.dateSource == "Package photo" { draft.dateSource = "Photo, corrected" }
+                                if !hasDate {
+                                    draft.dateValue = nil
+                                    draft.dateLabelRaw = ""
+                                    draft.dateConfidence = nil
+                                    draft.dateSource = "Not captured"
+                                }
                             }
-                        )) {
-                            Text("Best if used by").tag("best_if_used_by")
-                            Text("Best before").tag("best_before")
-                            Text("Use by").tag("use_by")
-                            Text("Expiration").tag("expiration")
-                            Text("Sell by").tag("sell_by")
-                            Text("Unknown").tag("unknown")
+                    }
+                    if draft.hasPrintedDate {
+                        editableRow("Date type", value: dateTypeLabel, field: .dateType) {
+                            Picker("Date type", selection: Binding(
+                                get: { draft.dateType },
+                                set: {
+                                    draft.dateType = $0
+                                    draft.dateConfirmed = false
+                                    if draft.dateSource == "Package photo" { draft.dateSource = "Photo, corrected" }
+                                }
+                            )) {
+                                Text("Best if used by").tag("best_if_used_by")
+                                Text("Best before").tag("best_before")
+                                Text("Use by").tag("use_by")
+                                Text("Expiration").tag("expiration")
+                                Text("Sell by").tag("sell_by")
+                                Text("Unknown").tag("unknown")
+                            }
+                            .pickerStyle(.menu)
                         }
-                        if draft.dateValue == nil {
-                            Button("Set printed date") {
-                                draft.dateValue = .now
-                                draft.dateSource = "Manual entry"
-                                draft.dateConfidence = nil
-                            }
-                        } else {
+                        editableRow("Date", value: draft.dateValue?.formatted(date: .abbreviated, time: .omitted) ?? "Not set", field: .date) {
                             DatePicker("Date", selection: Binding(
                                 get: { draft.dateValue ?? .now },
                                 set: {
+                                    let wasUnset = draft.dateValue == nil
                                     draft.dateValue = $0
                                     draft.dateConfirmed = false
-                                    if draft.dateSource == "Package photo" { draft.dateSource = "Photo, corrected" }
+                                    if draft.dateSource == "Package photo" || draft.dateSource == "Photo, corrected" {
+                                        draft.dateSource = "Photo, corrected"
+                                    } else if wasUnset {
+                                        draft.dateSource = "Manual entry"
+                                    }
                                     draft.dateConfidence = nil
                                 }
                             ), displayedComponents: .date)
-                        }
-                        TextField("Printed text (optional)", text: Binding(
-                            get: { draft.dateLabelRaw },
-                            set: {
-                                draft.dateLabelRaw = $0
-                                draft.dateConfirmed = false
-                                if draft.dateSource == "Package photo" { draft.dateSource = "Photo, corrected" }
+                            if draft.dateValue == nil {
+                                Button("Use selected date") {
+                                    draft.dateValue = .now
+                                    draft.dateConfirmed = false
+                                    draft.dateSource = "Manual entry"
+                                    draft.dateConfidence = nil
+                                }
                             }
-                        ))
+                        }
+                        editableRow("Printed text", value: draft.dateLabelRaw, field: .printedText) {
+                            TextField("Printed text (optional)", text: Binding(
+                                get: { draft.dateLabelRaw },
+                                set: {
+                                    draft.dateLabelRaw = $0
+                                    correctedPrintedDateText = $0
+                                    draft.dateConfirmed = false
+                                    if draft.dateSource == "Package photo" { draft.dateSource = "Photo, corrected" }
+                                }
+                            ), axis: .vertical)
+                                .lineLimit(1...3)
+                        }
                         LabeledContent("Source", value: draft.dateSource)
                         if let confidence = draft.dateConfidence {
                             LabeledContent("OCR confidence", value: confidence.formatted(.percent.precision(.fractionLength(0))))
@@ -327,31 +427,85 @@ struct IntakeReviewView: View {
                 }
 
                 Section("Storage and condition") {
-                    Picker("Storage", selection: $draft.storageType) {
-                        Text("Shelf stable").tag("shelf_stable")
-                        Text("Refrigerated").tag("refrigerated")
-                        Text("Frozen").tag("frozen")
+                    editableRow("Storage", value: displayLabel(draft.storageType), field: .storage) {
+                        Picker("Storage", selection: $draft.storageType) {
+                            Text("Shelf stable").tag("shelf_stable")
+                            Text("Refrigerated").tag("refrigerated")
+                            Text("Frozen").tag("frozen")
+                        }
+                        .pickerStyle(.menu)
                     }
-                    Picker("Package", selection: $draft.packageCondition) {
-                        Text("Acceptable").tag("acceptable")
-                        Text("Damaged").tag("damaged")
+                    editableRow("Package", value: displayLabel(draft.packageCondition), field: .packageCondition) {
+                        Picker("Package", selection: $draft.packageCondition) {
+                            Text("Acceptable").tag("acceptable")
+                            Text("Damaged").tag("damaged")
+                        }
+                        .pickerStyle(.menu)
                     }
-                    Picker("Temperature", selection: $draft.temperatureStatus) {
-                        Text("Not applicable").tag("not_applicable")
-                        Text("Acceptable").tag("acceptable")
-                        Text("Concern").tag("concern")
+                    editableRow("Temperature", value: displayLabel(draft.temperatureStatus), field: .temperature) {
+                        Picker("Temperature", selection: $draft.temperatureStatus) {
+                            Text("Not applicable").tag("not_applicable")
+                            Text("Acceptable").tag("acceptable")
+                            Text("Concern").tag("concern")
+                        }
+                        .pickerStyle(.menu)
                     }
                 }
 
-                if draft.calories != nil || !(draft.candidate?.allergens.isEmpty ?? true) {
-                    Section("Label information") {
-                        if let calories = draft.calories {
-                            LabeledContent("Calories", value: calories.formatted())
-                            LabeledContent("Basis", value: (draft.calorieBasis ?? "unknown").replacingOccurrences(of: "_", with: " "))
+                Section("Label information") {
+                    editableRow("Calories", value: draft.calories.map { $0.formatted() } ?? "Not recorded", field: .calories) {
+                        TextField("Calories", value: Binding(
+                            get: { draft.calories ?? 0 },
+                            set: {
+                                draft.calories = $0
+                                if draft.candidate != nil { draft.labelEdited = true }
+                            }
+                        ), format: .number)
+                            .keyboardType(.decimalPad)
+                    }
+                    editableRow("Calorie basis", value: draft.calorieBasis?.replacingOccurrences(of: "_", with: " ") ?? "Not recorded", field: .calorieBasis) {
+                        TextField("Calorie basis (for example, per serving)", text: Binding(
+                            get: { draft.calorieBasis ?? "" },
+                            set: {
+                                draft.calorieBasis = $0
+                                if draft.candidate != nil { draft.labelEdited = true }
+                            }
+                        ))
+                    }
+                    ForEach(currentAllergens, id: \.code) { allergen in
+                        editableRow(displayLabel(allergen.code), value: displayLabel(allergen.declaration), field: .allergen(allergen.code)) {
+                            Picker("Declaration", selection: Binding(
+                                get: { currentAllergens.first(where: { $0.code == allergen.code })?.declaration ?? "unknown" },
+                                set: { updateAllergen(allergen.code, declaration: $0) }
+                            )) {
+                                Text("Contains").tag("contains")
+                                Text("Cross-contact advisory").tag("cross_contact_advisory")
+                                Text("Not declared on label").tag("not_declared_on_label")
+                                Text("Unknown").tag("unknown")
+                            }
+                            .pickerStyle(.menu)
+                            Button("Remove declaration", role: .destructive) {
+                                draft.allergenOverrides = currentAllergens.filter { $0.code != allergen.code }
+                                draft.labelEdited = true
+                                editingField = nil
+                            }
                         }
-                        ForEach(draft.candidate?.allergens ?? [], id: \.code) { allergen in
-                            LabeledContent(allergen.code.replacingOccurrences(of: "_", with: " ").capitalized, value: allergen.declaration.replacingOccurrences(of: "_", with: " "))
+                    }
+                    Menu {
+                        ForEach(allergenCodes.filter { code in !currentAllergens.contains(where: { $0.code == code }) }, id: \.self) { code in
+                            Button(displayLabel(code)) { updateAllergen(code, declaration: "contains") }
                         }
+                    } label: {
+                        Label("Add allergen declaration", systemImage: "plus.circle")
+                    }
+                    .disabled(currentAllergens.count == allergenCodes.count)
+                    Text("Allergen corrections require admin review. Compare every declaration with the package; missing AI text does not mean allergen-free.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if draft.labelEdited == true {
+                        Label("Corrected catalog nutrition — an admin will review this item.", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
                     }
                 }
 
@@ -439,6 +593,80 @@ struct IntakeReviewView: View {
         return draft.scan == nil ? "Manual entry" : "Barcode without catalog match"
     }
 
+    private var currentAllergens: [AllergenDeclaration] {
+        draft.allergenOverrides ?? draft.candidate?.allergens ?? []
+    }
+
+    private var allergenCodes: [String] {
+        ["milk", "egg", "fish", "crustacean_shellfish", "tree_nuts", "peanuts", "wheat", "soybeans", "sesame"]
+    }
+
+    private func updateAllergen(_ code: String, declaration: String) {
+        var values = currentAllergens
+        if let index = values.firstIndex(where: { $0.code == code }) {
+            values[index] = AllergenDeclaration(code: code, declaration: declaration, labelText: values[index].labelText)
+        } else {
+            values.append(AllergenDeclaration(code: code, declaration: declaration))
+        }
+        draft.allergenOverrides = values
+        draft.labelEdited = true
+    }
+
+    @ViewBuilder
+    private func editableRow<Editor: View>(_ title: String, value: String, field: IntakeEditField,
+                                           @ViewBuilder editor: () -> Editor) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(value.isEmpty ? "Not entered" : value)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Button {
+                    editingField = editingField == field ? nil : field
+                } label: {
+                    Image(systemName: "pencil")
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Edit \(title)")
+            }
+            if editingField == field {
+                editor()
+                Button("Done") { editingField = nil }
+                    .buttonStyle(.borderless)
+            }
+        }
+        .disabled(isSubmitting || isSaving || isReadingPhoto || isAddingPhotos || isAnalyzing)
+    }
+
+    private var unitLabel: String {
+        switch draft.quantityUnit {
+        case "each": "Each"
+        case "can": "Can"
+        case "box": "Box"
+        case "lb": "Pound"
+        default: displayLabel(draft.quantityUnit)
+        }
+    }
+
+    private var dateTypeLabel: String {
+        switch draft.dateType {
+        case "best_if_used_by": "Best if used by"
+        case "best_before": "Best before"
+        case "use_by": "Use by"
+        case "expiration": "Expiration"
+        case "sell_by": "Sell by"
+        default: displayLabel(draft.dateType)
+        }
+    }
+
+    private func displayLabel(_ value: String) -> String {
+        value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
     private var photoCount: Int {
         (draft.referencePhotos ?? []).count + (draft.packagePhotoData == nil ? 0 : 1)
     }
@@ -464,6 +692,8 @@ struct IntakeReviewView: View {
         do {
             let result = try await analyze(photos)
             analysis = result
+            correctedPrintedDateText = nil
+            isEditingPrintedDateText = false
             if draft.productName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let name = result.productName {
                 draft.productName = name
@@ -489,6 +719,18 @@ struct IntakeReviewView: View {
         errorMessage = nil
     }
 
+    private func savePrintedDateCorrection() {
+        let corrected = printedDateEditText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !corrected.isEmpty else { return }
+        correctedPrintedDateText = corrected
+        draft.dateLabelRaw = corrected
+        draft.hasPrintedDate = true
+        draft.dateConfirmed = false
+        draft.dateConfidence = nil
+        draft.dateSource = "Manual correction"
+        isEditingPrintedDateText = false
+    }
+
     private func invalidateAnalysis() {
         if let analysis, draft.usedPhotoSuggestions == true {
             if draft.productName == analysis.productName { draft.productName = "" }
@@ -496,6 +738,8 @@ struct IntakeReviewView: View {
             draft.usedPhotoSuggestions = nil
         }
         analysis = nil
+        correctedPrintedDateText = nil
+        isEditingPrintedDateText = false
     }
 
     private func addPackagePhoto(_ data: Data) {

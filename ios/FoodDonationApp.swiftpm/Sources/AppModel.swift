@@ -53,6 +53,12 @@ struct IntakeDraft: Codable, Identifiable, Sendable {
     var referencePhotos: [IntakePhoto]?
     // Optional for drafts saved by earlier app versions.
     var usedPhotoSuggestions: Bool?
+    // Optional so drafts saved by earlier app versions remain decodable.
+    var identityEdited: Bool?
+    // A correction to catalog nutrition is reviewed instead of silently auto-accepted.
+    var labelEdited: Bool?
+    // Optional so older saved drafts still decode without manually edited allergens.
+    var allergenOverrides: [AllergenDeclaration]?
     var storageType = "shelf_stable"
     var packageCondition = "acceptable"
     var temperatureStatus = "not_applicable"
@@ -194,6 +200,10 @@ final class AppModel {
         guard submittedDraft.quantity > 0 else {
             throw AppValidationError("Quantity must be greater than zero.")
         }
+        guard submittedDraft.quantity.isFinite,
+              submittedDraft.calories.map({ $0.isFinite && $0 >= 0 }) ?? true else {
+            throw AppValidationError("Quantity and calories must be valid nonnegative numbers.")
+        }
         let photoCount = (submittedDraft.referencePhotos ?? []).count + (submittedDraft.packagePhotoData == nil ? 0 : 1)
         guard photoCount <= 8 else { throw AppValidationError("Attach no more than eight package photos.") }
         if submittedDraft.hasPrintedDate && (submittedDraft.dateValue == nil || !submittedDraft.dateConfirmed) {
@@ -244,7 +254,7 @@ final class AppModel {
         }
         let response = try await client.submitItem(
             itemID: record.itemID!,
-            body: .init(userReviewedAt: reviewedAt),
+            body: .init(userReviewedAt: reviewedAt, evidenceConflict: record.draft.labelEdited == true),
             idempotencyKey: record.submitMutationID
         )
         try await draftStore.delete(id: record.id)
@@ -279,11 +289,11 @@ final class AppModel {
 
     private func makeItemRequest(from draft: IntakeDraft, locationID: UUID) -> CreateItemRequest {
         CreateItemRequest(
-            productId: draft.candidate?.productId,
+            productId: draft.identityEdited == true ? nil : draft.candidate?.productId,
             productName: draft.productName,
             brand: draft.brand.nilIfBlank,
             category: FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue,
-            identitySource: draft.usedPhotoSuggestions == true ? "image" : draft.scan?.normalizedGTIN == nil ? "manual" : identitySource(for: draft.scan?.scheme ?? .unknown),
+            identitySource: draft.usedPhotoSuggestions == true ? "image" : draft.identityEdited == true || draft.scan?.normalizedGTIN == nil ? "manual" : identitySource(for: draft.scan?.scheme ?? .unknown),
             scannedCode: draft.scan?.raw.nilIfBlank,
             quantity: Decimal(draft.quantity),
             quantityUnit: draft.quantityUnit,
@@ -297,7 +307,7 @@ final class AppModel {
             calorieStatus: draft.calories == nil ? "not_labeled" : "recorded",
             calories: draft.calories.map { Decimal($0) },
             calorieBasis: draft.calorieBasis,
-            allergens: acceptedAllergens(from: draft.candidate?.allergens ?? []),
+            allergens: acceptedAllergens(from: draft.allergenOverrides ?? draft.candidate?.allergens ?? []),
             requiredFieldConfidence: [draft.usedPhotoSuggestions == true ? 0.6 : draft.candidate?.confidence ?? 0.3, 1, draft.hasPrintedDate ? 1 : 0.5]
         )
     }
