@@ -64,6 +64,11 @@ struct IntakeDraft: Codable, Identifiable, Sendable {
     var temperatureStatus = "not_applicable"
     var calories: Double?
     var calorieBasis: String?
+    var servingSize: String?
+    // Optional to preserve decoding of drafts saved before dietary claims existed.
+    var dietaryClaims: [String]?
+    var otherLabelClaims: [String]?
+    var dietaryClaimsConfirmed: Bool?
 
     init(id: UUID = UUID(), scan: ParsedScan? = nil, candidate: ProductCandidate? = nil) {
         self.id = id
@@ -74,6 +79,35 @@ struct IntakeDraft: Codable, Identifiable, Sendable {
         category = FoodCategory.from(raw: candidate?.category).rawValue
         calories = candidate?.calories.map { NSDecimalNumber(decimal: $0).doubleValue }
         calorieBasis = candidate?.calorieBasis
+        servingSize = candidate?.servingSize
+    }
+
+    var submissionIssues: [String] {
+        var issues: [String] = []
+        if productName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            issues.append("Enter a product name in Product. Add a front-label photo or type the name if AI could not read it.")
+        }
+        if !quantity.isFinite || quantity <= 0 {
+            issues.append("Enter a quantity greater than zero.")
+        }
+        if let calories, !calories.isFinite || calories < 0 {
+            issues.append("Correct the calories value; it must be zero or greater.")
+        }
+        let photoCount = (referencePhotos ?? []).count + (packagePhotoData == nil ? 0 : 1)
+        if photoCount > 8 {
+            issues.append("Remove package photos until there are no more than eight.")
+        }
+        if hasPrintedDate {
+            if dateValue == nil {
+                issues.append("Set the printed date, or turn off ‘Package has a printed date’ if none is visible.")
+            } else if !dateConfirmed {
+                issues.append("Turn on ‘I checked the date and type on the package’ after verifying both fields.")
+            }
+        }
+        if (!(dietaryClaims ?? []).isEmpty || !(otherLabelClaims ?? []).isEmpty) && dietaryClaimsConfirmed != true {
+            issues.append("Turn on ‘I checked these claims on the package’ after verifying every selected claim.")
+        }
+        return issues
     }
 }
 
@@ -135,6 +169,13 @@ final class AppModel {
         }
     }
 
+    func deleteSavedDraft(id: UUID) async throws {
+        guard savedDrafts.contains(where: { $0.id == id }) else { return }
+        try await draftStore.delete(id: id)
+        savedDrafts.removeAll { $0.id == id }
+        savedDraftsError = nil
+    }
+
     func saveDraft(_ draft: IntakeDraft) async throws {
         var record = savedDrafts.first { $0.id == draft.id } ?? newSavedDraft(draft)
         guard !record.isLocked else { throw AppValidationError("This draft is already queued for submission. Retry it instead of editing.") }
@@ -194,21 +235,7 @@ final class AppModel {
         var record = savedDrafts.first { $0.id == draft.id } ?? newSavedDraft(draft)
         try verifyIdentity(for: record)
         let submittedDraft = record.isLocked ? record.draft : draft
-        guard !submittedDraft.productName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw AppValidationError("Product name is required.")
-        }
-        guard submittedDraft.quantity > 0 else {
-            throw AppValidationError("Quantity must be greater than zero.")
-        }
-        guard submittedDraft.quantity.isFinite,
-              submittedDraft.calories.map({ $0.isFinite && $0 >= 0 }) ?? true else {
-            throw AppValidationError("Quantity and calories must be valid nonnegative numbers.")
-        }
-        let photoCount = (submittedDraft.referencePhotos ?? []).count + (submittedDraft.packagePhotoData == nil ? 0 : 1)
-        guard photoCount <= 8 else { throw AppValidationError("Attach no more than eight package photos.") }
-        if submittedDraft.hasPrintedDate && (submittedDraft.dateValue == nil || !submittedDraft.dateConfirmed) {
-            throw AppValidationError("Confirm the actual printed date before submitting.")
-        }
+        if let issue = submittedDraft.submissionIssues.first { throw AppValidationError(issue) }
         guard let storageLocationID = UUID(uuidString: record.locationID) else {
             throw AppValidationError("The storage location ID in Settings is not a valid UUID.")
         }
@@ -254,7 +281,7 @@ final class AppModel {
         }
         let response = try await client.submitItem(
             itemID: record.itemID!,
-            body: .init(userReviewedAt: reviewedAt, evidenceConflict: record.draft.labelEdited == true),
+            body: .init(userReviewedAt: reviewedAt, evidenceConflict: record.draft.labelEdited == true || !(record.draft.dietaryClaims ?? []).isEmpty || !(record.draft.otherLabelClaims ?? []).isEmpty),
             idempotencyKey: record.submitMutationID
         )
         try await draftStore.delete(id: record.id)
@@ -307,6 +334,9 @@ final class AppModel {
             calorieStatus: draft.calories == nil ? "not_labeled" : "recorded",
             calories: draft.calories.map { Decimal($0) },
             calorieBasis: draft.calorieBasis,
+            servingSize: draft.servingSize?.nilIfBlank,
+            dietaryClaims: draft.dietaryClaims ?? [],
+            otherLabelClaims: draft.otherLabelClaims ?? [],
             allergens: acceptedAllergens(from: draft.allergenOverrides ?? draft.candidate?.allergens ?? []),
             requiredFieldConfidence: [draft.usedPhotoSuggestions == true ? 0.6 : draft.candidate?.confidence ?? 0.3, 1, draft.hasPrintedDate ? 1 : 0.5]
         )

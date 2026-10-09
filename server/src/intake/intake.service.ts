@@ -40,16 +40,16 @@ export class IntakeService {
         `INSERT INTO intake_items (
           organization_id, session_id, product_id, product_name, brand, category, identity_source, scanned_code, quantity, quantity_unit,
           date_type, date_value, date_label_raw, storage_type, storage_location_id, package_condition,
-          temperature_status, calorie_status, calories, calorie_basis, allergen_summary, required_field_confidence, status
+          temperature_status, calorie_status, calories, calorie_basis, serving_size, dietary_claims, other_label_claims, allergen_summary, required_field_confidence, status
         )
-        SELECT $1, s.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, l.id, $16, $17, $18, $19, $20, $21::jsonb, $22::jsonb, 'ready_for_user_review'
+        SELECT $1, s.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, l.id, $16, $17, $18, $19, $20, $21, $22::text[], $23::text[], $24::jsonb, $25::jsonb, 'ready_for_user_review'
         FROM intake_sessions s JOIN locations l ON l.id = $15 AND l.organization_id = s.organization_id
         WHERE s.id = $2 AND s.organization_id = $1
         RETURNING id, status, version`,
         [actor.organizationId, sessionId, dto.productId ?? null, dto.productName, dto.brand ?? null, dto.category ?? "other", dto.identitySource, dto.scannedCode ?? null,
           dto.quantity, dto.quantityUnit, dto.dateType, dto.dateValue ?? null, dto.dateLabelRaw ?? null, dto.storageType,
           dto.storageLocationId, dto.packageCondition, dto.temperatureStatus, dto.calorieStatus, dto.calories ?? null,
-          dto.calorieBasis ?? null, JSON.stringify(dto.allergens), JSON.stringify(dto.requiredFieldConfidence)],
+          dto.calorieBasis ?? null, dto.servingSize ?? null, dto.dietaryClaims ?? [], dto.otherLabelClaims ?? [], JSON.stringify(dto.allergens), JSON.stringify(dto.requiredFieldConfidence)],
       );
       if (!result.rowCount) throw new BadRequestException("Session or storage location is invalid");
       const response = result.rows[0];
@@ -110,6 +110,7 @@ export class IntakeService {
         i.date_label_raw AS "dateLabelRaw", i.storage_type AS "storageType", loc.name AS "storageLocationName",
         i.package_condition AS "packageCondition", i.temperature_status AS "temperatureStatus",
         i.calorie_status AS "calorieStatus", i.calories::float8, i.calorie_basis AS "calorieBasis",
+        i.serving_size AS "servingSize", i.dietary_claims AS "dietaryClaims", i.other_label_claims AS "otherLabelClaims",
         i.allergen_summary AS allergens, i.routing_reason_codes AS "routingReasonCodes", i.trust_score AS "trustScore",
         i.trust_factors AS "trustFactors", i.trust_algorithm_version AS "trustAlgorithmVersion", i.status, i.created_at AS "createdAt"
        FROM intake_items i JOIN locations loc ON loc.id = i.storage_location_id

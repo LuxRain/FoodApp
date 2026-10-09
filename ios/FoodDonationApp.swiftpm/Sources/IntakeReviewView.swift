@@ -4,12 +4,31 @@ import SwiftUI
 import UIKit
 
 private enum IntakeEditField: Hashable {
-    case productName, brand, category, quantity, unit, hasPrintedDate, dateType, date, printedText
-    case storage, packageCondition, temperature, calories, calorieBasis
+    case productName, brand, category, quantity, unit, hasPrintedDate, dateType, date
+    case storage, packageCondition, temperature, calories, calorieBasis, servingSize
     case allergen(String)
 }
 
+private enum LabelClaimCatalog {
+    static let groups: [(title: String, codes: [String])] = [
+        ("Free from", ["dairy_free", "lactose_free", "gluten_free", "wheat_free", "egg_free", "soy_free", "peanut_free", "tree_nut_free", "sesame_free", "fish_free", "shellfish_free"]),
+        ("Dietary style", ["vegan", "vegetarian", "plant_based", "keto", "paleo"]),
+        ("Nutrition", ["no_added_sugar", "sugar_free", "low_sugar", "low_sodium", "no_salt_added", "low_fat", "fat_free", "low_calorie", "high_protein", "high_fiber"]),
+        ("Sourcing and religious", ["kosher", "halal", "organic", "non_gmo"]),
+    ]
+}
+
 struct IntakeReviewView: View {
+    private static let dateTimeZone = TimeZone(secondsFromGMT: 0)!
+    private static let dateDisplayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = .current
+        formatter.timeZone = dateTimeZone
+        formatter.dateStyle = .medium
+        return formatter
+    }()
+
     @Environment(\.dismiss) private var dismiss
     @State private var draft: IntakeDraft
     @State private var isSubmitting = false
@@ -19,11 +38,15 @@ struct IntakeReviewView: View {
     @State private var isAddingPhotos = false
     @State private var isAnalyzing = false
     @State private var analysis: PhotoAnalysisResponse?
+    @State private var otherClaimInput = ""
     @State private var editingField: IntakeEditField?
     @State private var selectedPackagePhotos: [PhotosPickerItem] = []
     @State private var showingPackageCamera = false
     @State private var previewPhoto: IntakePhoto?
     @State private var errorMessage: String?
+    @State private var showingSubmissionAlert = false
+    @State private var submissionAlertTitle = ""
+    @State private var submissionAlertMessage = ""
     let submit: (IntakeDraft) async throws -> Void
     let save: (IntakeDraft) async throws -> Void
     let analyze: ([Data]) async throws -> PhotoAnalysisResponse
@@ -44,70 +67,26 @@ struct IntakeReviewView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Submission status") {
+                    if let activity = submissionActivityHint {
+                        Label(activity, systemImage: "clock")
+                            .foregroundStyle(.secondary)
+                    } else if draft.submissionIssues.isEmpty {
+                        Label(isLocked ? "Ready to retry. Tap Retry in the upper-right." : "Ready to submit. Tap Submit in the upper-right.", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        ForEach(draft.submissionIssues, id: \.self) { issue in
+                            Label(issue, systemImage: "exclamationmark.circle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
                 if isLocked {
                     Section {
                         Label("Saved on this iPhone. Details are locked while submission is pending; retry when the server is available.", systemImage: "tray.full")
                             .foregroundStyle(.orange)
                     }
                 }
-                Section("Product") {
-                    editableRow("Product name", value: draft.productName, field: .productName) {
-                        TextField("Product name", text: Binding(
-                            get: { draft.productName },
-                            set: { newValue in
-                                if draft.candidate != nil && newValue != draft.productName { draft.identityEdited = true }
-                                draft.productName = newValue
-                            }
-                        ))
-                            .textInputAutocapitalization(.words)
-                    }
-                    editableRow("Brand", value: draft.brand, field: .brand) {
-                        TextField("Brand", text: Binding(
-                            get: { draft.brand },
-                            set: { newValue in
-                                if draft.candidate != nil && newValue != draft.brand { draft.identityEdited = true }
-                                draft.brand = newValue
-                            }
-                        ))
-                    }
-                    editableRow("Category", value: FoodCategory.from(raw: draft.category ?? draft.candidate?.category).title, field: .category) {
-                        Picker("Category", selection: Binding(
-                            get: { FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue },
-                            set: { newValue in
-                                if draft.candidate != nil && newValue != FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue {
-                                    draft.identityEdited = true
-                                }
-                                draft.category = newValue
-                            }
-                        )) {
-                            ForEach(FoodCategory.allCases) { category in
-                                Text(category.title).tag(category.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
-                    if let code = draft.scan?.raw, !code.isEmpty {
-                        LabeledContent("Scanned code", value: code)
-                            .font(.system(.body, design: .monospaced))
-                    }
-                    LabeledContent("Source", value: draft.usedPhotoSuggestions == true ? "Photo analysis · verify" : sourceLabel)
-                    if draft.identityEdited == true {
-                        Label("Edited catalog identity — an admin will review this item before it enters inventory.", systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-                    if let candidate = draft.candidate {
-                        LabeledContent("Confidence", value: candidate.confidence.formatted(.percent.precision(.fractionLength(0))))
-                    } else {
-                        Label("No catalog match. Add package photos and confirm what you can; an admin will review this item before it enters inventory.", systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-                    Text("Scanned code, source, and confidence are read-only evidence. Use the pencils above to correct the donation record.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
                 Section("Package photos and date (\(photoCount)/8)") {
                         Text(draft.candidate == nil
                              ? "Photograph one package: front, ingredients, allergens, weight, and printed date. AI can suggest details, which you must verify."
@@ -212,6 +191,14 @@ struct IntakeReviewView: View {
                             if let value = analysis.ingredients { LabeledContent("Ingredients", value: value) }
                             if let value = analysis.allergens { LabeledContent("Allergen text", value: value) }
                             if let value = analysis.packageWeight { LabeledContent("Weight", value: value) }
+                            if let value = analysis.calories { LabeledContent("Calories", value: value.formatted()) }
+                            if let value = analysis.servingSize { LabeledContent("Serving size", value: value) }
+                            if !analysis.dietaryClaims.isEmpty {
+                                LabeledContent("Label claims", value: analysis.dietaryClaims.map(displayLabel).joined(separator: ", "))
+                            }
+                            if !analysis.otherLabelClaims.isEmpty {
+                                LabeledContent("Other printed claims", value: analysis.otherLabelClaims.joined(separator: ", "))
+                            }
                             Button("Apply product and brand suggestions") { applyPhotoSuggestions(analysis) }
                                 .disabled(analysis.productName == nil && analysis.brand == nil)
                             Text("AI text for ingredients, allergens, and weight is shown for comparison only. Printed date text appears once below; check the actual date and confirm it separately.")
@@ -239,13 +226,15 @@ struct IntakeReviewView: View {
                             }
                     }
                     if draft.hasPrintedDate {
-                        editableRow("Date type", value: dateTypeLabel, field: .dateType) {
+                        editableRow("Date type", value: dateTypeLabel, field: .dateType, highlight: !draft.dateConfirmed) {
                             Picker("Date type", selection: Binding(
                                 get: { draft.dateType },
                                 set: {
                                     draft.dateType = $0
                                     draft.dateConfirmed = false
-                                    if draft.dateSource == "Package photo" { draft.dateSource = "Photo, corrected" }
+                                    if draft.dateSource == "Package photo" || draft.dateSource == "AI suggestion · unverified" {
+                                        draft.dateSource = "Photo, corrected"
+                                    }
                                 }
                             )) {
                                 Text("Best if used by").tag("best_if_used_by")
@@ -257,14 +246,15 @@ struct IntakeReviewView: View {
                             }
                             .pickerStyle(.menu)
                         }
-                        editableRow("Date", value: draft.dateValue?.formatted(date: .abbreviated, time: .omitted) ?? "Not set", field: .date) {
+                        editableRow("Date", value: draft.dateValue.map(Self.dateDisplayFormatter.string(from:)) ?? "Not set", field: .date,
+                                    highlight: !draft.dateConfirmed) {
                             DatePicker("Date", selection: Binding(
                                 get: { draft.dateValue ?? .now },
                                 set: {
                                     let wasUnset = draft.dateValue == nil
                                     draft.dateValue = $0
                                     draft.dateConfirmed = false
-                                    if draft.dateSource == "Package photo" || draft.dateSource == "Photo, corrected" {
+                                    if draft.dateSource == "Package photo" || draft.dateSource == "Photo, corrected" || draft.dateSource == "AI suggestion · unverified" {
                                         draft.dateSource = "Photo, corrected"
                                     } else if wasUnset {
                                         draft.dateSource = "Manual entry"
@@ -272,6 +262,7 @@ struct IntakeReviewView: View {
                                     draft.dateConfidence = nil
                                 }
                             ), displayedComponents: .date)
+                                .environment(\.timeZone, Self.dateTimeZone)
                             if draft.dateValue == nil {
                                 Button("Use selected date") {
                                     draft.dateValue = .now
@@ -281,17 +272,26 @@ struct IntakeReviewView: View {
                                 }
                             }
                         }
-                        editableRow("Printed text", value: draft.dateLabelRaw, field: .printedText) {
-                            TextField("Printed text (optional)", text: Binding(
-                                get: { draft.dateLabelRaw },
-                                set: {
-                                    draft.dateLabelRaw = $0
-                                    draft.dateConfirmed = false
-                                    if draft.dateSource == "Package photo" { draft.dateSource = "Photo, corrected" }
-                                    if draft.dateSource == "AI suggestion · unverified" { draft.dateSource = "Manual correction" }
-                                }
-                            ), axis: .vertical)
-                                .lineLimit(1...3)
+                        if !draft.dateConfirmed {
+                            Label(draft.dateValue == nil
+                                  ? (draft.dateLabelRaw.isEmpty
+                                     ? "Set the date shown on the package, then confirm it."
+                                     : "The label text was captured, but no complete date was recognized. Set the date from the package, then confirm it.")
+                                  : "Suggested date and type — compare them with the package, correct them if needed, then turn on the confirmation switch.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                        if draft.dateType == "unknown" {
+                            Text("Date type was not identified. If the package says Best By, Use By, Expiration, or Sell By, choose it with the pencil; otherwise leave Unknown.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                        if !draft.dateLabelRaw.isEmpty {
+                            Text("Captured label text: \(draft.dateLabelRaw)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("Captured label text, \(draft.dateLabelRaw)")
                         }
                         LabeledContent("Source", value: draft.dateSource)
                         if let confidence = draft.dateConfidence {
@@ -302,16 +302,71 @@ struct IntakeReviewView: View {
                             }
                         }
                         if draft.dateValue != nil {
-                            Button(draft.dateConfirmed ? "Date confirmed" : "Confirm date matches package") {
-                                draft.dateConfirmed = true
-                            }
-                            .disabled(draft.dateConfirmed)
+                            Toggle("I checked the date and type on the package", isOn: $draft.dateConfirmed)
                         }
                     } else {
                         Label("No date will be invented. This item will be sent for review.", systemImage: "info.circle")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                Section("Product") {
+                    editableRow("Product name", value: draft.productName, field: .productName) {
+                        TextField("Product name", text: Binding(
+                            get: { draft.productName },
+                            set: { newValue in
+                                if draft.candidate != nil && newValue != draft.productName { draft.identityEdited = true }
+                                draft.productName = newValue
+                            }
+                        ))
+                            .textInputAutocapitalization(.words)
+                    }
+                    editableRow("Brand", value: draft.brand, field: .brand) {
+                        TextField("Brand", text: Binding(
+                            get: { draft.brand },
+                            set: { newValue in
+                                if draft.candidate != nil && newValue != draft.brand { draft.identityEdited = true }
+                                draft.brand = newValue
+                            }
+                        ))
+                    }
+                    editableRow("Category", value: FoodCategory.from(raw: draft.category ?? draft.candidate?.category).title, field: .category) {
+                        Picker("Category", selection: Binding(
+                            get: { FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue },
+                            set: { newValue in
+                                if draft.candidate != nil && newValue != FoodCategory.from(raw: draft.category ?? draft.candidate?.category).rawValue {
+                                    draft.identityEdited = true
+                                }
+                                draft.category = newValue
+                            }
+                        )) {
+                            ForEach(FoodCategory.allCases) { category in
+                                Text(category.title).tag(category.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                    if let code = draft.scan?.raw, !code.isEmpty {
+                        LabeledContent("Scanned code", value: code)
+                            .font(.system(.body, design: .monospaced))
+                    }
+                    LabeledContent("Source", value: draft.usedPhotoSuggestions == true ? "Photo analysis · verify" : sourceLabel)
+                    if draft.identityEdited == true {
+                        Label("Edited catalog identity — an admin will review this item before it enters inventory.", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    if let candidate = draft.candidate {
+                        LabeledContent("Confidence", value: candidate.confidence.formatted(.percent.precision(.fractionLength(0))))
+                    } else {
+                        Label("No catalog match. Add package photos and confirm what you can; an admin will review this item before it enters inventory.", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    Text("Scanned code, source, and confidence are read-only evidence. Use the pencils above to correct the donation record.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Quantity") {
@@ -376,6 +431,79 @@ struct IntakeReviewView: View {
                             }
                         ))
                     }
+                    editableRow("Serving size", value: draft.servingSize ?? "Not recorded", field: .servingSize) {
+                        TextField("Printed serving size", text: Binding(
+                            get: { draft.servingSize ?? "" },
+                            set: {
+                                draft.servingSize = $0
+                                if draft.candidate != nil { draft.labelEdited = true }
+                            }
+                        ))
+                    }
+                    Text("Printed label claims")
+                        .font(.headline)
+                    Menu {
+                        ForEach(LabelClaimCatalog.groups, id: \.title) { group in
+                            Menu(group.title) {
+                                ForEach(group.codes, id: \.self) { claim in
+                                    Button {
+                                        toggleClaim(claim)
+                                    } label: {
+                                        if (draft.dietaryClaims ?? []).contains(claim) {
+                                            Label(displayLabel(claim), systemImage: "checkmark")
+                                        } else {
+                                            Text(displayLabel(claim))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Add printed claim", systemImage: "plus.circle")
+                    }
+                    if (draft.dietaryClaims ?? []).isEmpty && (draft.otherLabelClaims ?? []).isEmpty {
+                        Text("No package claims recorded")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(draft.dietaryClaims ?? [], id: \.self) { claim in
+                        HStack {
+                            Text(displayLabel(claim))
+                            Spacer()
+                            Button { toggleClaim(claim) } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Remove \(displayLabel(claim)) claim")
+                        }
+                    }
+                    ForEach(draft.otherLabelClaims ?? [], id: \.self) { claim in
+                        HStack {
+                            Text(claim)
+                            Spacer()
+                            Button { removeOtherClaim(claim) } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Remove \(claim) claim")
+                        }
+                    }
+                    HStack {
+                        TextField("Other claim, exactly as printed", text: $otherClaimInput)
+                            .textInputAutocapitalization(.words)
+                        Button("Add") { addOtherClaim() }
+                            .disabled(otherClaimInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (draft.otherLabelClaims ?? []).count >= 8)
+                    }
+                    if !(draft.dietaryClaims ?? []).isEmpty || !(draft.otherLabelClaims ?? []).isEmpty {
+                        Toggle("I checked these claims on the package", isOn: Binding(
+                            get: { draft.dietaryClaimsConfirmed == true },
+                            set: { draft.dietaryClaimsConfirmed = $0 }
+                        ))
+                    }
+                    Text("Record only words printed on the whole package. These claims are not proof a food is safe for an allergy. Record explicit Contains or May contain statements separately; no statement visible means unknown.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     ForEach(currentAllergens, id: \.code) { allergen in
                         editableRow(displayLabel(allergen.code), value: displayLabel(allergen.declaration), field: .allergen(allergen.code)) {
                             Picker("Declaration", selection: Binding(
@@ -431,7 +559,7 @@ struct IntakeReviewView: View {
                     Button(isSubmitting ? "Submitting" : isLocked ? "Retry" : "Submit") {
                         Task { await submitDraft() }
                     }
-                    .disabled(isSubmitting || isSaving || isReadingPhoto || isAddingPhotos || isAnalyzing || (draft.hasPrintedDate && !draft.dateConfirmed))
+                    .disabled(isSubmitting || isSaving || isReadingPhoto || isAddingPhotos || isAnalyzing)
                 }
                 ToolbarItem(placement: .bottomBar) {
                     if !isLocked {
@@ -445,6 +573,11 @@ struct IntakeReviewView: View {
             .sheet(isPresented: $showingPackageCamera) {
                 PackagePhotoCamera { data in addPackagePhoto(data) }
                     .ignoresSafeArea()
+            }
+            .alert(submissionAlertTitle, isPresented: $showingSubmissionAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(submissionAlertMessage)
             }
             .fullScreenCover(item: $previewPhoto) { photo in
                 PackagePhotoPreviewView(photos: previewPhotos, initialPhotoID: photo.id)
@@ -477,12 +610,50 @@ struct IntakeReviewView: View {
         return draft.scan == nil ? "Manual entry" : "Barcode without catalog match"
     }
 
+    private var submissionActivityHint: String? {
+        if isAnalyzing { return "Wait for photo analysis to finish before submitting." }
+        if isReadingPhoto { return "Wait for date reading to finish before submitting." }
+        if isAddingPhotos { return "Wait for photos to finish loading before submitting." }
+        if isSubmitting { return "Submitting your donation…" }
+        if isSaving { return "Saving your draft…" }
+        return nil
+    }
+
     private var currentAllergens: [AllergenDeclaration] {
         draft.allergenOverrides ?? draft.candidate?.allergens ?? []
     }
 
     private var allergenCodes: [String] {
         ["milk", "egg", "fish", "crustacean_shellfish", "tree_nuts", "peanuts", "wheat", "soybeans", "sesame"]
+    }
+
+    private func toggleClaim(_ claim: String) {
+        var claims = draft.dietaryClaims ?? []
+        if claims.contains(claim) { claims.removeAll { $0 == claim } }
+        else { claims.append(claim) }
+        draft.dietaryClaims = claims
+        draft.dietaryClaimsConfirmed = false
+        draft.labelEdited = true
+    }
+
+    private func addOtherClaim() {
+        let claim = String(otherClaimInput.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+        guard !claim.isEmpty else { return }
+        var claims = draft.otherLabelClaims ?? []
+        guard claims.count < 8 else { return }
+        if !claims.contains(where: { $0.localizedCaseInsensitiveCompare(claim) == .orderedSame }) {
+            claims.append(claim)
+            draft.otherLabelClaims = claims
+            draft.dietaryClaimsConfirmed = false
+            draft.labelEdited = true
+        }
+        otherClaimInput = ""
+    }
+
+    private func removeOtherClaim(_ claim: String) {
+        draft.otherLabelClaims = (draft.otherLabelClaims ?? []).filter { $0 != claim }
+        draft.dietaryClaimsConfirmed = false
+        draft.labelEdited = true
     }
 
     private func updateAllergen(_ code: String, declaration: String) {
@@ -497,7 +668,7 @@ struct IntakeReviewView: View {
     }
 
     @ViewBuilder
-    private func editableRow<Editor: View>(_ title: String, value: String, field: IntakeEditField,
+    private func editableRow<Editor: View>(_ title: String, value: String, field: IntakeEditField, highlight: Bool = false,
                                            @ViewBuilder editor: () -> Editor) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 12) {
@@ -506,6 +677,9 @@ struct IntakeReviewView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Text(value.isEmpty ? "Not entered" : value)
+                        .padding(.horizontal, highlight ? 8 : 0)
+                        .padding(.vertical, highlight ? 4 : 0)
+                        .background(highlight ? Color.yellow.opacity(0.25) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Button {
@@ -548,7 +722,8 @@ struct IntakeReviewView: View {
     }
 
     private func displayLabel(_ value: String) -> String {
-        value.replacingOccurrences(of: "_", with: " ").capitalized
+        if value == "non_gmo" { return "Non-GMO" }
+        return value.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
     private var photoCount: Int {
@@ -583,12 +758,35 @@ struct IntakeReviewView: View {
                 draft.dateSource = "Not captured"
                 draft.dateConfidence = nil
             }
-            if draft.dateLabelRaw.isEmpty, let printedDate = result.printedDate?.trimmingCharacters(in: .whitespacesAndNewlines), !printedDate.isEmpty {
+            let allowedDateTypes: Set<String> = ["best_if_used_by", "best_before", "use_by", "expiration", "sell_by"]
+            let modelDateType = result.printedDateType.flatMap { allowedDateTypes.contains($0) ? $0 : nil }
+            if draft.dateLabelRaw.isEmpty,
+               let printedDate = result.printedDate?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !printedDate.isEmpty,
+               !["not visible", "not found", "unknown", "none", "n/a"].contains(printedDate.lowercased()) {
                 draft.dateLabelRaw = printedDate
                 draft.hasPrintedDate = true
                 draft.dateConfirmed = false
                 draft.dateConfidence = nil
                 draft.dateSource = "AI suggestion · unverified"
+                let match = DateLabelParser.bestMatch(in: [(text: printedDate, confidence: 1)])
+                if let match {
+                    draft.dateValue = match.date
+                }
+                if let match, match.dateType != "unknown" {
+                    if let modelDateType, modelDateType != match.dateType {
+                        draft.dateType = "unknown"
+                        errorMessage = "AI and captured label text disagree about the date type. Check the package and choose the correct type."
+                    } else {
+                        draft.dateType = match.dateType
+                    }
+                } else {
+                    draft.dateType = modelDateType ?? "unknown"
+                }
+            } else if draft.hasPrintedDate, !draft.dateConfirmed, draft.dateType == "unknown", let modelDateType {
+                // OCR may have read the digits but missed the nearby date-type label.
+                draft.dateType = modelDateType
+                draft.dateConfidence = nil
             }
             if draft.productName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let name = result.productName {
@@ -600,7 +798,23 @@ struct IntakeReviewView: View {
                 draft.brand = brand
                 draft.usedPhotoSuggestions = true
             }
-            if analysis?.productName == nil {
+            if draft.calories == nil, let calories = result.calories, let basis = result.calorieBasis {
+                draft.calories = calories
+                draft.calorieBasis = basis
+                draft.servingSize = result.servingSize
+                draft.usedPhotoSuggestions = true
+            }
+            if !result.dietaryClaims.isEmpty && draft.dietaryClaimsConfirmed != true {
+                draft.dietaryClaims = result.dietaryClaims
+                draft.dietaryClaimsConfirmed = false
+                draft.labelEdited = true
+            }
+            if !result.otherLabelClaims.isEmpty && draft.dietaryClaimsConfirmed != true {
+                draft.otherLabelClaims = result.otherLabelClaims
+                draft.dietaryClaimsConfirmed = false
+                draft.labelEdited = true
+            }
+            if analysis?.productName == nil && errorMessage == nil {
                 errorMessage = "The model could not identify the product. Add a clear front-label photo or enter its name yourself."
             }
         } catch {
@@ -692,6 +906,12 @@ struct IntakeReviewView: View {
     }
 
     private func submitDraft() async {
+        if !draft.submissionIssues.isEmpty {
+            submissionAlertTitle = "Before submitting"
+            submissionAlertMessage = draft.submissionIssues.joined(separator: "\n\n")
+            showingSubmissionAlert = true
+            return
+        }
         isSubmitting = true
         errorMessage = nil
         do {
@@ -701,6 +921,9 @@ struct IntakeReviewView: View {
             isLocked = isLockedAfterFailure(draft.id)
             errorMessage = isLocked ? "Submission did not complete. This item is saved on this iPhone; retry when connected. \(error.localizedDescription)" : error.localizedDescription
             isSubmitting = false
+            submissionAlertTitle = "Could not submit donation"
+            submissionAlertMessage = errorMessage ?? "Please try again."
+            showingSubmissionAlert = true
         }
     }
 

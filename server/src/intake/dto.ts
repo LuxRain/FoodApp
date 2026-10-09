@@ -1,5 +1,6 @@
 import { Type } from "class-transformer";
-import { IsArray, IsBoolean, IsDateString, IsIn, IsNumber, IsOptional, IsString, IsUUID, Max, Min, ValidateNested } from "class-validator";
+import { ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from "class-validator";
+import { labelClaimCodes } from "../analysis/label-claims";
 
 export class CreateSessionDto {
   @IsUUID() receivingLocationId!: string;
@@ -38,6 +39,9 @@ export class CreateItemDto {
   @IsIn(["recorded", "not_labeled", "not_applicable", "unknown"]) calorieStatus!: string;
   @IsOptional() @IsNumber() @Min(0) calories?: number;
   @IsOptional() @IsString() calorieBasis?: string;
+  @IsOptional() @IsString() servingSize?: string;
+  @IsOptional() @IsArray() @IsIn(labelClaimCodes, { each: true }) dietaryClaims?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(8) @IsString({ each: true }) @MaxLength(120, { each: true }) otherLabelClaims?: string[];
   @IsArray() @ValidateNested({ each: true }) @Type(() => AllergenDto) allergens!: AllergenDto[];
   @IsArray() requiredFieldConfidence!: number[];
 }

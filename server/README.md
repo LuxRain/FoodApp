@@ -12,12 +12,14 @@ psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/002_develo
 psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/003_manual_intake_code.sql
 psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/004_intake_category.sql
 psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/005_trust_privacy_ledger.sql
+psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/006_nutrition_dietary_claims.sql
+psql postgres://foodapp:foodapp@localhost:55432/foodapp -f migrations/007_expanded_label_claims.sql
 cp .env.example .env
 npm run start:dev
 ```
 
 The development seed creates the demo organization, main receiving location, regular/admin users, and barcode `012345678905` for the Low-Sodium Black Beans test product. Apply it once to a new local database.
-Run each migration only once. If your database already has migrations 001–004, apply only `005_trust_privacy_ledger.sql`; do not rerun the earlier scripts.
+Run each migration only once. On an existing database, apply only the migrations it is missing; do not rerun earlier scripts. This development database already has migrations 006–007 applied.
 
 ## Trust, auditability, privacy, and evaluation
 
@@ -45,7 +47,7 @@ npm run analyze:photos -- /absolute/path/front.HEIC /absolute/path/ingredients.p
 
 The command accepts one to eight images in the formats above, converts them before sending them to Ollama at `http://127.0.0.1:11434`, and prints suggested fields. Set `OLLAMA_MODEL` or `OLLAMA_URL` to override the defaults. This is a local diagnostic tool; it does not save or approve an intake item. Always verify printed dates and allergens against the physical package.
 
-The iPhone app can also send one to eight JPEG package photos to `POST /v1/photo-analysis` (multipart field `photos`). The API calls the same local Ollama model and returns nullable suggestions for product name, brand, ingredients, allergens, weight, and printed-date text. Analysis does not create an intake item or write photos to the database. The volunteer must explicitly apply the product/brand suggestion and confirm the printed date; photo-identified items go to admin review rather than automatic acceptance. Start Ollama on the **API Mac** before using this feature. No Ollama port needs to be exposed to the iPhone.
+The iPhone app can also send one to eight JPEG package photos to `POST /v1/photo-analysis` (multipart field `photos`). The API calls the same local Ollama model and returns nullable suggestions for product name, brand, ingredients, explicit allergen text, weight, printed-date text and type, calories, calorie basis, serving size, and visible package claims. The claim catalog covers common free-from, dietary-style, nutrition, sourcing, and religious labels; unlisted claims can be stored verbatim as other printed claims. Analysis does not create an intake item or write photos to the database. The volunteer must confirm the actual printed date and type and all package claims against the package before submission. Claims route to admin review; they are not allergy-safe guarantees. No allergen statement visible means unknown, not allergen-free. Photo-identified items also go to admin review. Start Ollama on the **API Mac** before using this feature. No Ollama port needs to be exposed to the iPhone.
 
 Files are stored under `server/var/evidence/` by default, outside the public web root, with metadata and a SHA-256 hash in PostgreSQL. Set `EVIDENCE_STORAGE_DIR` to an absolute directory for a persistent deployment. Back up that directory together with the database. This is local pilot storage; it does not yet provide object-store replication or malware scanning. The `malware_scan_state` value is recorded as `not_scanned` rather than implying a scan occurred.
 

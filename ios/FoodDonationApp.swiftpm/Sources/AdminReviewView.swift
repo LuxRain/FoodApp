@@ -120,6 +120,17 @@ private struct AdminReviewDetailView: View {
 
             Section("Nutrition and allergens") {
                 LabeledContent("Calories", value: item.calories.map { "\($0.formatted()) (\(AdminReviewView.label(item.calorieBasis ?? "unknown")))" } ?? AdminReviewView.label(item.calorieStatus))
+                if let servingSize = item.servingSize { LabeledContent("Serving size", value: servingSize) }
+                if !item.dietaryClaims.isEmpty {
+                    LabeledContent("Package claims", value: item.dietaryClaims.map(AdminReviewView.label).joined(separator: ", "))
+                }
+                if !item.otherLabelClaims.isEmpty {
+                    LabeledContent("Other printed claims", value: item.otherLabelClaims.joined(separator: ", "))
+                }
+                if !item.dietaryClaims.isEmpty || !item.otherLabelClaims.isEmpty {
+                    Text("Claims were checked by the volunteer but are not an allergen-free guarantee. Confirm against the package before acceptance.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if item.allergens.isEmpty {
                     Text("No allergens recorded; this is not a verified allergen-free claim.")
                         .font(.caption)

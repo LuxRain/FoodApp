@@ -53,6 +53,12 @@ public struct PhotoAnalysisResponse: Decodable, Sendable {
     public let allergens: String?
     public let packageWeight: String?
     public let printedDate: String?
+    public let printedDateType: String?
+    public let calories: Double?
+    public let calorieBasis: String?
+    public let servingSize: String?
+    public let dietaryClaims: [String]
+    public let otherLabelClaims: [String]
 }
 
 public struct ProductCandidate: Codable, Identifiable, Sendable {
@@ -91,6 +97,9 @@ public struct CreateItemRequest: Codable, Sendable {
     public let calorieStatus: String
     public let calories: Decimal?
     public let calorieBasis: String?
+    public let servingSize: String?
+    public let dietaryClaims: [String]
+    public let otherLabelClaims: [String]
     public let allergens: [AllergenDeclaration]
     public let requiredFieldConfidence: [Double]
 
@@ -113,6 +122,9 @@ public struct CreateItemRequest: Codable, Sendable {
         calorieStatus: String,
         calories: Decimal?,
         calorieBasis: String?,
+        servingSize: String? = nil,
+        dietaryClaims: [String] = [],
+        otherLabelClaims: [String] = [],
         allergens: [AllergenDeclaration],
         requiredFieldConfidence: [Double]
     ) {
@@ -134,6 +146,9 @@ public struct CreateItemRequest: Codable, Sendable {
         self.calorieStatus = calorieStatus
         self.calories = calories
         self.calorieBasis = calorieBasis
+        self.servingSize = servingSize
+        self.dietaryClaims = dietaryClaims
+        self.otherLabelClaims = otherLabelClaims
         self.allergens = allergens
         self.requiredFieldConfidence = requiredFieldConfidence
     }
@@ -196,6 +211,9 @@ public struct AdminReviewItem: Codable, Identifiable, Sendable {
     public let calorieStatus: String
     public let calories: Double?
     public let calorieBasis: String?
+    public let servingSize: String?
+    public let dietaryClaims: [String]
+    public let otherLabelClaims: [String]
     public let allergens: [AllergenDeclaration]
     public let routingReasonCodes: [String]
     public let trustScore: Int?

@@ -1,6 +1,7 @@
 import { BadGatewayException, BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import sharp from "sharp";
 import { normalizePhoto } from "../evidence/photo-normalizer";
+import { labelClaimCodes, type LabelClaimCode } from "./label-claims";
 
 type Upload = { buffer: Buffer; size: number; mimetype: string };
 export type PhotoAnalysis = {
@@ -10,13 +11,27 @@ export type PhotoAnalysis = {
   allergens: string | null;
   packageWeight: string | null;
   printedDate: string | null;
+  printedDateType: "best_if_used_by" | "best_before" | "use_by" | "expiration" | "sell_by" | null;
+  calories: number | null;
+  calorieBasis: "per_serving" | "per_100g" | "per_package" | null;
+  servingSize: string | null;
+  dietaryClaims: LabelClaimCode[];
+  otherLabelClaims: string[];
 };
 
 const fields = ["productName", "brand", "ingredients", "allergens", "packageWeight", "printedDate"] as const;
 const schema = {
   type: "object",
-  properties: Object.fromEntries(fields.map((field) => [field, { type: ["string", "null"] }])),
-  required: fields,
+  properties: {
+    ...Object.fromEntries(fields.map((field) => [field, { type: ["string", "null"] }])),
+    calories: { type: ["number", "null"] },
+    printedDateType: { type: ["string", "null"], enum: ["best_if_used_by", "best_before", "use_by", "expiration", "sell_by", null] },
+    calorieBasis: { type: ["string", "null"], enum: ["per_serving", "per_100g", "per_package", null] },
+    servingSize: { type: ["string", "null"] },
+    dietaryClaims: { type: "array", items: { type: "string", enum: labelClaimCodes } },
+    otherLabelClaims: { type: "array", maxItems: 8, items: { type: "string", maxLength: 120 } },
+  },
+  required: [...fields, "printedDateType", "calories", "calorieBasis", "servingSize", "dietaryClaims", "otherLabelClaims"],
 };
 
 export function parsePhotoAnalysis(content: string): PhotoAnalysis {
@@ -30,6 +45,26 @@ export function parsePhotoAnalysis(content: string): PhotoAnalysis {
     if (candidate !== null && typeof candidate !== "string") throw new BadGatewayException("The vision model returned invalid fields");
     result[field] = typeof candidate === "string" ? candidate.trim().slice(0, 4000) || null : null;
   }
+  const calories = record.calories;
+  const printedDateType = record.printedDateType;
+  const basis = record.calorieBasis;
+  const servingSize = record.servingSize;
+  const claims = record.dietaryClaims;
+  if (calories !== null && (typeof calories !== "number" || !Number.isFinite(calories) || calories < 0)) throw new BadGatewayException("The vision model returned invalid calories");
+  if (printedDateType !== null && !["best_if_used_by", "best_before", "use_by", "expiration", "sell_by"].includes(printedDateType as string)) throw new BadGatewayException("The vision model returned invalid printed date type");
+  if (basis !== null && !["per_serving", "per_100g", "per_package"].includes(basis as string)) throw new BadGatewayException("The vision model returned invalid calorie basis");
+  if (servingSize !== null && typeof servingSize !== "string") throw new BadGatewayException("The vision model returned invalid serving size");
+  if (!Array.isArray(claims) || !claims.every((claim) => labelClaimCodes.includes(claim))) throw new BadGatewayException("The vision model returned invalid dietary claims");
+  const otherClaims = record.otherLabelClaims;
+  if (!Array.isArray(otherClaims) || otherClaims.length > 8 || !otherClaims.every((claim) => typeof claim === "string" && claim.length <= 120)) throw new BadGatewayException("The vision model returned invalid other label claims");
+  result.calories = calories as number | null;
+  result.printedDateType = printedDateType as PhotoAnalysis["printedDateType"];
+  result.calorieBasis = basis as PhotoAnalysis["calorieBasis"];
+  result.servingSize = typeof servingSize === "string" ? servingSize.trim().slice(0, 200) || null : null;
+  result.dietaryClaims = [...new Set(claims)] as PhotoAnalysis["dietaryClaims"];
+  result.otherLabelClaims = [...new Set(otherClaims.map((claim: string) => claim.trim()).filter(Boolean))];
+  if (result.calories === null) result.calorieBasis = null;
+  if (result.printedDate === null) result.printedDateType = null;
   return result;
 }
 
@@ -57,7 +92,7 @@ export class PhotoAnalysisService {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
-          messages: [{ role: "user", content: "These photos show ONE food package. Read only visible text and visual product identity. Return productName, brand, ingredients, allergens, packageWeight and printedDate. Preserve the original language. Use null when absent or unreadable; never infer allergens, dates or ingredients from appearance. Do not treat a barcode number as a product name.", images }],
+          messages: [{ role: "user", content: `These photos show ONE food package. Read only visible text and visual product identity. Return productName, brand, ingredients, allergens, packageWeight, printedDate, printedDateType, calories, calorieBasis, servingSize, dietaryClaims, otherLabelClaims. For printedDate, transcribe the complete date-bearing label phrase when visible, including words such as BEST BEFORE, BEST IF USED BY, USE BY, EXP, or SELL BY; not just its digits. printedDateType must be best_if_used_by, best_before, use_by, expiration, or sell_by ONLY if those words or an unambiguous abbreviation are visibly printed near that date. If only digits are visible, use null for printedDateType; do not infer it from the product or date. calories is the numeric Calories value from the Nutrition Facts label; calorieBasis must be per_serving, per_100g, or per_package only when printed. servingSize is the printed serving-size text. dietaryClaims may contain only these codes: ${labelClaimCodes.join(", ")}. Add a code ONLY when an equivalent claim for the whole product is explicitly printed on the package; never infer it from ingredients, nutrition numbers, symbols without readable text, or product appearance. Organic certification text can support organic, but organic ingredients alone cannot. Put other explicit dietary, nutrient, ingredient-restriction, sourcing, or religious claims not in that list into otherLabelClaims as short verbatim text; do not duplicate catalog claims. Exclude generic slogans such as 'real ingredients', storage instructions such as 'keep refrigerated' or 'perishable', product origin, distributor details, and ordinary Nutrition Facts values from otherLabelClaims. allergens is only an explicit Contains or May contain statement, never an inferred absence. Preserve original language for text. Use null when absent or unreadable and [] when no claim is visible. Never infer allergens, dates, calories, or ingredients from appearance. Do not treat a barcode number as a product name.`, images }],
           format: schema,
           think: false,
           stream: false,

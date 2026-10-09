@@ -37,12 +37,13 @@ public enum DateLabelParser {
     }
 
     private static func labelType(in text: String) -> String {
-        let upper = text.uppercased()
-        if upper.contains("BEST IF USED BY") { return "best_if_used_by" }
-        if upper.contains("BEST BEFORE") || upper.contains("BEST BY") { return "best_before" }
-        if upper.contains("USE BY") { return "use_by" }
-        if upper.contains("EXP") { return "expiration" }
-        if upper.contains("SELL BY") { return "sell_by" }
+        let words = " " + text.uppercased()
+            .replacingOccurrences(of: "[^A-Z0-9]+", with: " ", options: .regularExpression) + " "
+        if words.contains(" BEST IF USED BY ") || words.contains(" BEST USED BY ") { return "best_if_used_by" }
+        if words.contains(" BEST BEFORE ") || words.contains(" BEST BY ") || words.contains(" BBE ") || words.contains(" BB ") { return "best_before" }
+        if words.contains(" USE BY ") || words.contains(" USE BEFORE ") { return "use_by" }
+        if words.contains(" EXPIRATION ") || words.contains(" EXPIRY ") || words.contains(" EXPIRES ") || words.contains(" EXP ") { return "expiration" }
+        if words.contains(" SELL BY ") || words.contains(" SELL THRU ") || words.contains(" SELL THROUGH ") { return "sell_by" }
         return "unknown"
     }
 

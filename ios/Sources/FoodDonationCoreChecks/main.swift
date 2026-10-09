@@ -42,6 +42,10 @@ struct FoodDonationCoreChecks {
         ])
         precondition(preferredLabel?.dateType == "use_by")
         precondition(DateLabelParser.bestMatch(in: [(text: "BEST BY 10/14", confidence: 0.99)]) == nil)
+        precondition(DateLabelParser.bestMatch(in: [(text: "BEST-IF-USED/BY 10/14/2026", confidence: 1)])?.dateType == "best_if_used_by")
+        precondition(DateLabelParser.bestMatch(in: [(text: "BBE 10/14/2026", confidence: 1)])?.dateType == "best_before")
+        precondition(DateLabelParser.bestMatch(in: [(text: "EXP. 10/14/2026", confidence: 1)])?.dateType == "expiration")
+        precondition(DateLabelParser.bestMatch(in: [(text: "SELL THRU 10/14/2026", confidence: 1)])?.dateType == "sell_by")
 
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let outbox = try OfflineOutbox(fileURL: directory.appending(path: "outbox.json"))
