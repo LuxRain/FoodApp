@@ -14,13 +14,13 @@ An iOS-first food-donation intake system for barcode, QR, and package-image capt
 
 The implemented vertical slice can:
 
-1. resolve a checksum-valid UPC/GTIN against the internal catalog, with an Open Food Facts v3 adapter as the external fallback;
-2. create an anonymous intake session and item;
-3. route the reviewed item using per-field confidence and shelf-life rules;
-4. atomically create a lot and receive movement for accepted inventory;
-5. replay idempotent submissions without double counting;
-6. return an expiration-sorted donation dashboard;
-7. enforce admin-only access to the exception queue and decision endpoint;
-8. encode the matching contract in a Swift client with a durable offline outbox.
+1. Resolve a checksum-valid UPC/GTIN against the internal catalog, with an Open Food Facts v3 adapter as the external fallback;
+2. Create an anonymous intake session and item;
+3. Route the reviewed item using per-field confidence and shelf-life rules;
+4. Atomically create a lot and receive movement for accepted inventory;
+5. Replay idempotent submissions without double counting;
+6. Return an expiration-sorted donation dashboard;
+7. Enforce admin-only access to the exception queue and decision endpoint;
+8. Encode the matching contract in a Swift client with a durable offline outbox.
 
 See each component's README for local commands and known environment requirements.
